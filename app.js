@@ -221,6 +221,34 @@ function seek(sec, slot = 'main') {
 }
 function pausePlayer(slot = 'main') { const p = PLAYERS[slot]; if (p && p.yt && p.yt.pauseVideo) p.yt.pauseVideo(); }
 
+/* 映像の下の操作バー：10秒戻る／再生・一時停止／10秒進む／再生速度（スロー） */
+const RATES = [0.25, 0.5, 1];
+function playerBar(slot) {
+  return `<div class="pbar" id="pbar-${slot}">
+    <button onclick="skip(-10,'${slot}')" aria-label="10秒戻る">« 10秒</button>
+    <button class="play" onclick="togglePlay('${slot}')" aria-label="再生・一時停止">▶ ／ ❚❚</button>
+    <button onclick="skip(10,'${slot}')" aria-label="10秒進む">10秒 »</button>
+    <span class="rates">${RATES.map((r) => `<button data-r="${r}" class="${r === 1 ? 'on' : ''}" onclick="setRate(${r},'${slot}')">${r === 1 ? '標準' : r === 0.5 ? 'スロー' : '超スロー'}</button>`).join('')}</span></div>`;
+}
+function ytOf(slot) { const p = PLAYERS[slot]; return p && p.yt && p.yt.seekTo ? p.yt : null; }
+function skip(sec, slot = 'main') { const y = ytOf(slot); if (!y) return; y.seekTo(Math.max(0, y.getCurrentTime() + sec), true); }
+function togglePlay(slot = 'main') { const y = ytOf(slot); if (!y) return; if (y.getPlayerState() === 1) y.pauseVideo(); else y.playVideo(); }
+function setRate(r, slot = 'main') {
+  const y = ytOf(slot); if (!y) return;
+  y.setPlaybackRate(r);
+  $$(`#pbar-${slot} .rates button`).forEach((b) => b.classList.toggle('on', Number(b.dataset.r) === r));
+  if (y.getPlayerState() !== 1) y.playVideo();
+}
+// キーボード：← → で10秒、スペースで再生・一時停止（文字を入力中は効かない）
+document.addEventListener('keydown', (e) => {
+  if (/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '')) return;
+  const slot = !$('#modal').hidden && PLAYERS.modal ? 'modal' : PLAYERS.main ? 'main' : '';
+  if (!slot) return;
+  if (e.key === 'ArrowLeft') { skip(-10, slot); e.preventDefault(); }
+  else if (e.key === 'ArrowRight') { skip(10, slot); e.preventDefault(); }
+  else if (e.key === ' ') { togglePlay(slot); e.preventDefault(); }
+});
+
 /* Key Incidents の「時間」→ 映像の秒（キックオフ位置・後半開始位置が登録されている場合） */
 function kiToSec(time, video, halfLen) {
   if (!video || video.ko === null) return null;
@@ -748,7 +776,7 @@ ROUTES.video = async (arg) => {
   const v = VD.video, m = VD.match;
   const crew = B.consts.OFFICIAL_ROLES.map((r) => VD.crew[r].name ? `<span class="tag">${r}　${h(VD.crew[r].name)}</span>` : '').join('');
   setMain(`<div class="vlayout"><div>
-      <div id="player-anchor" class="player"><div id="yt-main"></div></div>
+      <div id="player-anchor" class="player"><div id="yt-main"></div></div>${playerBar('main')}
       <div style="margin:12px 0"><div class="b" style="font-size:17px">${card(m)}</div><div class="small muted">${dl(m.date)} ${h(m.ko)}　${h(m.comp)} ${h(m.name)}／${h(m.venue)}／${h(v.team)}提供</div>
       ${VD.others.length ? `<div style="margin-top:6px">${VD.others.map((o) => `<button class="btn sm" onclick="go('video','${o.id}')">${h(o.team)}提供の映像に切り替え</button>`).join(' ')}</div>` : ''}
       <div style="margin-top:8px">${crew}</div></div>
@@ -883,7 +911,7 @@ function csRender() {
 async function csOpen(id) {
   const c = CS.list.find((x) => x.id === id);
   const mine = c.byId === B.ctx.id || B.ctx.com;
-  openModal({ title: h(c.title), wide: true, body: `<div class="player" style="margin-bottom:8px"><div id="yt-modal"></div></div>
+  openModal({ title: h(c.title), wide: true, body: `<div class="player"><div id="yt-modal"></div></div>${playerBar('modal')}
     <div class="row small" style="margin-bottom:8px"><span class="muted num">${fmtSec(c.start)}〜${fmtSec(c.end)}</span><button class="btn sm ghost" onclick="seek(${c.start},'modal')">もう一度再生</button><span class="spacer"></span>${c.tags.map((t) => `<span class="tag">${h(t)}</span>`).join('')}</div>
     ${c.correct ? `<div class="card pale"><div class="small muted">正しい判定</div><div class="b" style="font-size:17px">${h(c.correct)}</div></div>` : ''}
     ${c.text ? `<div class="flabel">解説</div><p class="pre">${h(c.text)}</p>` : ''}
