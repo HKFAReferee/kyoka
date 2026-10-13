@@ -341,3 +341,11 @@ tr.click:hover td{background:var(--pale)}
 }
 @media (max-width:640px){.pstick .pbar .rates{width:auto;flex:1 1 100%}}
 @media (max-width:1100px){.vleft{display:contents}}
+/* 映像のページ（PC）：横幅いっぱい。映像は画面の高さに収まる範囲でできるだけ大きく。右に事例とコメント */
+body.wide main,body.wide .head-in{max-width:none}
+@media (min-width:1101px){
+  body.wide .vlayout{grid-template-columns:minmax(0,1fr) 400px;gap:24px;align-items:start}
+  body.wide .pstick{max-width:calc((100vh - 200px) * 16 / 9);margin:0 auto}
+  body.wide .vright{position:sticky;top:85px;max-height:calc(100vh - 105px);overflow-y:auto}
+  body.wide .vright .clist{max-height:none}
+}

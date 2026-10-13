@@ -222,6 +222,7 @@ function go(page, arg) {
   if (LEAVE) { try { LEAVE(); } catch (e) {} LEAVE = null; }
   if (!ROUTES[page]) page = B.ctx.kind === 'team' ? 'team' : 'home';
   CUR = page; CUR_ARG = arg; GEN++; FRESH = new Set(); renderNav(); destroyPlayer('main');
+  document.body.classList.toggle('wide', page === 'video');   // 映像のページは画面の横幅いっぱいを使う
   if (!$('#modal').hidden) closeModal();
   try { const q = new URLSearchParams({ t: TOKEN, p: page }); if (arg) q.set('a', arg); history.replaceState(null, '', '?' + q.toString()); } catch (e) {}
   head(PAGES[PARENT[page] || page] ? PAGES[PARENT[page] || page][0] : '', null, '');
@@ -866,8 +867,8 @@ ROUTES.video = async (arg) => {
       ${VD.others.length ? `<div style="margin-top:6px">${VD.others.map((o) => `<button class="btn sm" onclick="go('video','${o.id}')">${h(o.team)}提供の映像に切り替え</button>`).join(' ')}</div>` : ''}
       <div style="margin-top:8px">${crew}</div></div>
       <div id="marks"></div>
+    </div><div class="vright">
       <div id="case-area"></div>
-    </div><div>
       <div class="card" style="padding:0">
         <div class="row" style="padding:12px 16px;border-bottom:1px solid var(--line)"><h2 style="margin:0">コメント</h2><span class="spacer"></span>${VD.canComment ? `<button class="btn sm primary" onclick="cmOpen()">＋ 今の場面にコメント</button>` : ''}</div>
         <div id="cm-form"></div>
