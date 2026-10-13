@@ -878,10 +878,14 @@ async function vdSave() {
 }
 async function vdDel(id) {
   const p = TL.parts[tlIdx(id)];
-  if (!confirm(`この映像（${p.part}）の登録を削除しますか？（ついているコメントも消えます）`)) return;
+  const nCase = VD.cases.filter((c) => c.videoId === id).length;
+  if (nCase && !VD.com) return toast(`この映像は事例ライブラリで${nCase}件使われているため削除できません。委員会に相談してください`, true);
+  const msg = `この映像（${p.part}）の登録を削除しますか？\nついているコメントも消えます。` + (nCase ? `\n事例ライブラリの事例 ${nCase}件 も一緒に消えます。` : '');
+  if (!confirm(msg)) return;
   try {
-    await call('api_delVideo', id); toast('削除しました');
+    await call('api_delVideo', id, nCase > 0); toast('削除しました');
     const rest = TL.parts.filter((x) => x.id !== id);
+    closeModal();
     if (rest.length) go('video', rest[0].id); else go('videos');
   } catch (e) { fail(e); }
 }
@@ -1042,11 +1046,38 @@ ROUTES.video = async (arg) => {
   clearInterval(TL_TIMER); TL_TIMER = setInterval(() => tlDraw(), 500);
   tlProbe();
 };
-// この組の映像（区分ごと）。押すとその映像の頭から。登録した人・委員会は削除できる
+// この組の映像（区分ごと）。押すとその映像の頭から。登録した人・委員会は「登録を直す」から直せる・消せる
+function canEditVideo(p) { return VD.com || (p.byId && p.byId === VD.me); }
 function renderParts() {
   if (!$('#parts')) return;
-  const canDel = (p) => VD.com || (p.byId && p.byId === VD.me);
-  $('#parts').innerHTML = TL.parts.length > 1 || canDel(TL.parts[0]) ? `${TL.parts.map((p) => `<span class="tag" style="padding:2px 10px"><a href="#" onclick="seekPart('${p.id}',0);return false;">${h(p.part)}${p.dur ? ' ' + fmtSec(p.dur) : ''}</a>${canDel(p) ? ` <a href="#" style="color:var(--accent)" title="この映像を削除" onclick="vdDel('${p.id}');return false;">×</a>` : ''}</span>`).join('')}` : '';
+  const edit = TL.parts.some(canEditVideo);
+  $('#parts').innerHTML = (TL.parts.length > 1 ? TL.parts.map((p) => `<span class="tag" style="padding:2px 10px"><a href="#" onclick="seekPart('${p.id}',0);return false;">${h(p.part)}${p.dur ? ' ' + fmtSec(p.dur) : ''}</a></span>`).join('') : '')
+    + (edit ? `<a href="#" class="small" style="margin-left:4px" onclick="vdFix();return false;">登録を直す</a>` : '');
+}
+/* 登録を直す：この組の映像の一覧 → 1本ずつ「直す」「削除」 */
+function vdFix() {
+  openModal({ title: '映像の登録を直す', body: `<p class="small muted">間違えて登録した映像は、試合・出どころ・区分・URL を直すか、削除できます。</p>
+    <div class="list">${TL.parts.map((p) => `<div class="li"><div class="main"><div class="t">${h(p.part)}</div><div class="s">${h(p.url || p.yt)}</div></div>
+      ${canEditVideo(p) ? `<button class="btn sm" onclick="vdEdit('${p.id}')">直す</button><button class="btn sm danger" onclick="vdDel('${p.id}')">削除</button>` : '<span class="small muted">登録した人か委員会が直せます</span>'}</div>`).join('')}</div>` });
+}
+async function vdEdit(id) {
+  const p = TL.parts[tlIdx(id)];
+  $('#modal .modal-body').innerHTML = '<p class="loading">読み込み中…</p>';
+  try { VM = await get('api_videoMatches'); } catch (e) { return fail(e); }
+  const ms = VM.some((m) => m.id === VD.match.id) ? VM : [VD.match].concat(VM);
+  $('#modal .modal-body').innerHTML = `
+    <div class="field"><label>試合</label><select id="ve-m">${ms.map((m) => `<option value="${m.id}" ${m.id === VD.match.id ? 'selected' : ''}>${dl(m.date)}　${h(m.a)} 対 ${h(m.b)}（${h(m.comp)} ${h(m.name)}）</option>`).join('')}</select></div>
+    <div class="field"><label>映像の出どころ</label><input id="ve-src" value="${h(p.team || VD.team || '')}"><div class="hint">同じ試合・同じ出どころの映像が、つないで再生する1組になります</div></div>
+    <div class="field"><label>区分</label><select id="ve-part">${(B.consts.PARTS || ['試合全体']).map((x) => `<option ${x === p.part ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+    <div class="field"><label>YouTube の URL</label><input id="ve-url" type="url" value="${h(p.url || '')}"><div class="hint">URL を別の動画に変えると、その映像のキックオフ・後半開始の位置は設定し直しになります</div></div>`;
+  $('#modal .modal-head h2').textContent = p.part + 'の登録を直す';
+  $('#modal .modal-box').insertAdjacentHTML('beforeend', `<div class="modal-foot"><button class="btn" onclick="vdFix()">戻る</button><button class="btn primary" onclick="vdEditSave('${id}')">保存</button></div>`);
+}
+async function vdEditSave(id) {
+  const x = { matchId: $('#ve-m').value, source: $('#ve-src').value.trim(), part: $('#ve-part').value, url: $('#ve-url').value.trim() };
+  if (!x.source) return toast('映像の出どころを入力してください', true);
+  if (!x.url) return toast('YouTube の URL を貼り付けてください', true);
+  try { await call('api_editVideo', id, x); toast('直しました'); closeModal(); go('video', id); } catch (e) { fail(e); }
 }
 function renderMarks() {
   if (!$('#marks') || !TL) return;
