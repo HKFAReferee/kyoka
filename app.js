@@ -153,6 +153,14 @@ function closeModal() { destroyPlayer('modal'); $('#modal').hidden = true; $('#m
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
 document.addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
 
+/* 左のメニューを隠す・出す（PC。次に開いたときも同じ状態） */
+function navToggle(force) {
+  const hide = force !== undefined ? force : !document.body.classList.contains('navhide');
+  document.body.classList.toggle('navhide', hide);
+  $('#navtoggle').title = hide ? 'メニューを出す' : 'メニューを隠す';
+  try { localStorage.setItem('navhide', hide ? '1' : ''); } catch (e) {}
+}
+
 /* ───────── ナビゲーション ───────── */
 const ICON = {
   home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
@@ -866,8 +874,8 @@ ROUTES.video = async (arg) => {
       <div style="margin:12px 0"><div class="b" style="font-size:17px">${card(m)}</div><div class="small muted">${dl(m.date)} ${h(m.ko)}　${h(m.comp)} ${h(m.name)}／${h(m.venue)}／${h(v.team)}提供${v.by ? `（${h(v.by)}さんが登録）` : ''}${VD.canDelete ? `　<a href="#" onclick="vdDel();return false;">この映像を削除</a>` : ''}</div>
       ${VD.others.length ? `<div style="margin-top:6px">${VD.others.map((o) => `<button class="btn sm" onclick="go('video','${o.id}')">${h(o.team)}提供の映像に切り替え</button>`).join(' ')}</div>` : ''}
       <div style="margin-top:8px">${crew}</div></div>
-      <div id="marks"></div>
     </div><div class="vright">
+      <div id="marks"></div>
       <div id="case-area"></div>
       <div class="card" style="padding:0">
         <div class="row" style="padding:12px 16px;border-bottom:1px solid var(--line)"><h2 style="margin:0">コメント</h2><span class="spacer"></span>${VD.canComment ? `<button class="btn sm primary" onclick="cmOpen()">＋ 今の場面にコメント</button>` : ''}</div>
@@ -881,7 +889,7 @@ ROUTES.video = async (arg) => {
 };
 function renderMarks() {
   const v = VD.video, edit = VD.canCase;
-  const mk = (k, label) => `<div class="row" style="flex:1;min-width:200px"><span class="small muted">${label}</span><b class="num">${v[k] === null ? '<span class="muted">未設定</span>' : `<a href="#" onclick="seek(${v[k]});return false;">${fmtSec(v[k])}</a>`}</b>
+  const mk = (k, label) => `<div class="row" style="flex:1 1 100%"><span class="small muted" style="width:64px">${label}</span><b class="num">${v[k] === null ? '<span class="muted">未設定</span>' : `<a href="#" onclick="seek(${v[k]});return false;">${fmtSec(v[k])}</a>`}</b>
     ${edit ? `<button class="btn sm ghost" onclick="setMark('${k}')">今の位置にする</button>` : ''}</div>`;
   $('#marks').innerHTML = `<div class="card">
     <div class="row">${mk('ko', 'キックオフ')}${mk('h2', '後半開始')}</div>
@@ -1542,6 +1550,7 @@ async function tmDel(id) {
     // 最初の画面がホームなら、起動情報とホームのデータを同時に取りに行く
     if (!START_PAGE || START_PAGE === 'home') fetchMemo('api_home', []).catch(() => {});
     B = await call('api_boot');
+    try { if (localStorage.getItem('navhide') && B.ctx.kind !== 'team') navToggle(true); } catch (e) {}
     let page = START_PAGE, arg = START_ARG;
     if (page === 'c_report') page = 'report';
     go(page || (B.ctx.kind === 'team' ? 'team' : 'home'), arg || undefined);

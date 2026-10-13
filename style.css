@@ -349,3 +349,13 @@ body.wide main,body.wide .head-in{max-width:none}
   body.wide .vright{position:sticky;top:85px;max-height:calc(100vh - 105px);overflow-y:auto}
   body.wide .vright .clist{max-height:none}
 }
+/* 左のメニューを隠すボタン（PCのみ） */
+.navtoggle{color:var(--gray);flex:none}
+.navtoggle:hover{color:var(--blue)}
+body.navhide .side{display:none}
+body.navhide .wrap{margin-left:0}
+body.navhide .actionbar{left:0}
+@media (max-width:899px){.navtoggle{display:none}}
+@media (min-width:900px){body.navhide .toast{margin-left:0}}
+/* 右の列のキックオフ設定はコンパクトに */
+.vright #marks .card{margin-bottom:12px}
