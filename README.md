@@ -9,7 +9,7 @@
 | --- | --- |
 | `index.html` | 画面の枠 |
 | `app.js` | 全画面の表示と操作 |
-| `style.css` | デザイン（白地・ヘアライン罫線・6色） |
+| `style.css` | デザイン（白地・罫線・6色。PC は左メニュー、スマホは下タブ） |
 | `config.js` | Apps Script ウェブアプリの URL（`API_URL`） |
 
 ## 公開のしかた
