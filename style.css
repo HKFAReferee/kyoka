@@ -359,3 +359,11 @@ body.navhide .actionbar{left:0}
 @media (min-width:900px){body.navhide .toast{margin-left:0}}
 /* 右の列のキックオフ設定はコンパクトに */
 .vright #marks .card{margin-bottom:12px}
+/* 試合全体のバー（分かれた映像をつないだ全体） */
+.tl{margin:6px 0 0}
+.tl-track{position:relative;display:flex;height:22px;border-radius:6px;overflow:hidden;background:var(--line);cursor:pointer;gap:2px}
+.tl-seg{background:var(--pale);min-width:8px;display:flex;align-items:center;padding:0 6px;font-size:11px;color:var(--ink);white-space:nowrap;overflow:hidden}
+.tl-seg.on{color:var(--blue);font-weight:700;box-sizing:border-box;border:1px solid var(--blue)}
+.tl-track #tl-pos{position:absolute;top:0;bottom:0;width:3px;background:var(--accent);left:0;pointer-events:none}
+.tl-mark{position:absolute;top:0;bottom:0;width:2px;background:var(--blue);pointer-events:none}
+.tl-info{display:flex;gap:8px;margin-top:2px;font-variant-numeric:tabular-nums}

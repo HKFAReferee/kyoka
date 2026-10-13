@@ -22,7 +22,7 @@ async function call(fn, ...args) {
   } catch (e) {
     throw new Error('サーバーに接続できませんでした。通信状態を確認してください。');
   }
-  if (!READS.test(fn) && fn !== 'api_boot' && fn !== 'api_video' && fn !== 'api_reportGet') { MEMO.clear(); WGEN++; GEN++; }
+  if (!READS.test(fn) && !/^api_(boot|video|reportGet|setDuration)$/.test(fn)) { MEMO.clear(); WGEN++; GEN++; }
   const j = await res.json().catch(() => ({ ok: false, error: 'サーバーの応答を読み取れませんでした。' }));
   if (!j.ok) throw new Error(j.error || 'エラーが発生しました。');
   return j.result;
@@ -229,7 +229,7 @@ function openMenu() {
 function go(page, arg) {
   if (LEAVE) { try { LEAVE(); } catch (e) {} LEAVE = null; }
   if (!ROUTES[page]) page = B.ctx.kind === 'team' ? 'team' : 'home';
-  CUR = page; CUR_ARG = arg; GEN++; FRESH = new Set(); renderNav(); destroyPlayer('main');
+  CUR = page; CUR_ARG = arg; GEN++; FRESH = new Set(); renderNav(); destroyPlayer('main'); clearInterval(TL_TIMER); TL = null;
   document.body.classList.toggle('wide', page === 'video');   // 映像のページは画面の横幅いっぱいを使う
   if (!$('#modal').hidden) closeModal();
   try { const q = new URLSearchParams({ t: TOKEN, p: page }); if (arg) q.set('a', arg); history.replaceState(null, '', '?' + q.toString()); } catch (e) {}
@@ -263,13 +263,15 @@ async function mountPlayer(slot, elId, yt, opt = {}) {
     const pv = { playsinline: 1, rel: 0, modestbranding: 1 };
     if (opt.start) pv.start = opt.start;
     if (opt.end) pv.end = opt.end;
-    PLAYERS[slot] = { yt: new YT.Player(elId, { videoId: yt, playerVars: pv }), id: yt };
+    PLAYERS[slot] = { yt: new YT.Player(elId, { videoId: yt, playerVars: pv, events: { onStateChange: (e) => opt.onState && opt.onState(e.data) } }), id: yt };
   } else {
     el.innerHTML = `<iframe src="https://www.youtube.com/embed/${yt}?playsinline=1&start=${opt.start || 0}${opt.end ? '&end=' + opt.end : ''}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
     PLAYERS[slot] = { el: el, id: yt };
   }
 }
-function destroyPlayer(slot) { const p = PLAYERS[slot]; if (p && p.yt && p.yt.destroy) { try { p.yt.destroy(); } catch (e) {} } delete PLAYERS[slot]; }
+function destroyPlayer(slot) {
+  const p = PLAYERS[slot]; if (p && p.yt && p.yt.destroy) { try { p.yt.destroy(); } catch (e) {} } delete PLAYERS[slot];
+}
 function curTime(slot = 'main') { const p = PLAYERS[slot]; return p && p.yt && p.yt.getCurrentTime ? Math.floor(p.yt.getCurrentTime()) : 0; }
 function seek(sec, slot = 'main') {
   const p = PLAYERS[slot]; if (!p) return;
@@ -288,11 +290,15 @@ function playerBar(slot) {
     <span class="rates">${RATES.map((r) => `<button data-r="${r}" class="${r === 1 ? 'on' : ''}" onclick="setRate(${r},'${slot}')">${r === 1 ? '標準' : r === 0.5 ? 'スロー' : '超スロー'}</button>`).join('')}</span></div>`;
 }
 function ytOf(slot) { const p = PLAYERS[slot]; return p && p.yt && p.yt.seekTo ? p.yt : null; }
-function skip(sec, slot = 'main') { const y = ytOf(slot); if (!y) return; y.seekTo(Math.max(0, y.getCurrentTime() + sec), true); }
+function skip(sec, slot = 'main') {
+  const y = ytOf(slot); if (!y) return;
+  if (slot === 'main' && TL) { const t = nowT(); if (t !== null) return seekT(Math.max(0, Math.min(t + sec, tlTotal() || Infinity))); }
+  y.seekTo(Math.max(0, y.getCurrentTime() + sec), true);
+}
 function togglePlay(slot = 'main') { const y = ytOf(slot); if (!y) return; if (y.getPlayerState() === 1) y.pauseVideo(); else y.playVideo(); }
 function setRate(r, slot = 'main') {
   const y = ytOf(slot); if (!y) return;
-  y.setPlaybackRate(r);
+  y.setPlaybackRate(r); if (slot === 'main' && TL) TL.rate = r;
   $$(`#pbar-${slot} .rates button`).forEach((b) => b.classList.toggle('on', Number(b.dataset.r) === r));
   if (y.getPlayerState() !== 1) y.playVideo();
 }
@@ -308,11 +314,11 @@ document.addEventListener('keydown', (e) => {
 
 /* Key Incidents の「時間」→ 映像の秒（キックオフ位置・後半開始位置が登録されている場合） */
 function kiToSec(time, video, halfLen) {
-  if (!video || video.ko === null) return null;
+  if (!video || (video.ko === null && video.h2 === null)) return null;
   const m = String(time || '').replace(/[＋]/g, '+').match(/(\d+)\s*(?:\+\s*(\d+))?/);
   if (!m) return null;
   const base = Number(m[1]), extra = Number(m[2] || 0), half = halfLen || 45;
-  if (base <= half) return video.ko + Math.max(0, base - 1 + extra) * 60;
+  if (base <= half) return video.ko === null ? null : video.ko + Math.max(0, base - 1 + extra) * 60;
   if (video.h2 === null) return null;
   return video.h2 + Math.max(0, base - half - 1 + extra) * 60;
 }
@@ -499,16 +505,33 @@ function infoRO(match, info, assessor, date) {
     <dt>アセッサー</dt><dd>${h(assessor || '')}</dd><dt>記入日</dt><dd>${h(date || info.date || '')}</dd>
     ${info.ops ? `<dt>運営上の問題点</dt><dd class="pre">${h(info.ops)}</dd>` : ''}</dl>`;
 }
+/* レポートの試合の映像を組（出どころ）ごとにまとめ、キックオフ位置のある組を使う */
+function matchTimeline(videos) {
+  const PARTS = B.consts.PARTS || [];
+  const sets = {};
+  (videos || []).forEach((v) => (sets[v.team] = sets[v.team] || []).push(v));
+  for (const team in sets) {
+    const parts = sets[team].sort((a, b) => PARTS.indexOf(a.part) - PARTS.indexOf(b.part) || String(a.at).localeCompare(String(b.at)));
+    const tl = tlBuild(parts), mk = tlMarks(tl);
+    if (mk.ko !== null || mk.h2 !== null) return { tl, mk };
+  }
+  return null;
+}
 function kiRO(ki, videos, halfLen) {
   const list = (ki || []).filter((k) => k && (k.time || k.text));
   if (!list.length) return '<h2 style="margin-top:0">Key Incidents</h2><p class="muted">ありません</p>';
-  const v = (videos || []).find((x) => x.ko !== null);
+  const m = matchTimeline(videos);
   return `<h2 style="margin-top:0">Key Incidents</h2>${list.map((k) => {
-    const s = kiToSec(k.time, v, halfLen);
-    return `<div class="item row top"><span class="b blue num" style="width:56px">${h(k.time)}${/\d$/.test(k.time) ? '分' : ''}</span><div class="pre" style="flex:1">${h(k.text)}</div>${s !== null ? `<button class="btn sm" onclick="go('video','${v.id}@${s}')">映像</button>` : ''}</div>`;
+    const t = m ? kiToSec(k.time, m.mk, halfLen) : null;
+    const p = t !== null ? fromT(t, m.tl) : null;
+    return `<div class="item row top"><span class="b blue num" style="width:56px">${h(k.time)}${/\d$/.test(k.time) ? '分' : ''}</span><div class="pre" style="flex:1">${h(k.text)}</div>${p ? `<button class="btn sm" onclick="go('video','${p.id}@${Math.round(p.local)}')">映像</button>` : ''}</div>`;
   }).join('')}`;
 }
-function videoBtns(videos) { return videos.length ? `<div class="row" style="margin:0 0 12px">${videos.map((v) => `<button class="btn sm" onclick="go('video','${v.id}')">${icon('videos', 16)} 試合映像（${h(v.team)}提供）</button>`).join('')}</div>` : ''; }
+function videoBtns(videos) {
+  const first = {}; (videos || []).forEach((v) => { if (!first[v.team]) first[v.team] = v; });
+  const list = Object.values(first);
+  return list.length ? `<div class="row" style="margin:0 0 12px">${list.map((v) => `<button class="btn sm" onclick="go('video','${v.id}')">${icon('videos', 16)} 試合映像（${h(v.team)}提供）</button>`).join('')}</div>` : '';
+}
 
 ROUTES.myreport = async (matchId) => {
   head('アセスメントレポート', ['myreports']);
@@ -839,6 +862,7 @@ async function vdAdd() {
   $('#modal .modal-body').innerHTML = VM.length ? `
     <div class="field"><label>試合</label><select id="vd-m" onchange="vdTeams()">${VM.map((m) => `<option value="${m.id}">${dl(m.date)}　${h(m.a)} 対 ${h(m.b)}（${h(m.comp)} ${h(m.name)}）</option>`).join('')}</select><div class="hint">今日までの試合が新しい順に並んでいます</div></div>
     <div class="field"><label>映像の出どころ</label><input id="vd-src" list="vd-teams" placeholder="例：北海FC（チームから受け取り）"><datalist id="vd-teams"></datalist><div class="hint">どこから届いた映像か（チーム名など）。映像の一覧に「○○提供」と表示されます</div></div>
+    <div class="field"><label>区分</label><select id="vd-part">${(B.consts.PARTS || ['試合全体']).map((p) => `<option>${p}</option>`).join('')}</select><div class="hint">映像が前半・後半などに分かれているときは、1本ずつ区分を選んで登録してください。同じ出どころの映像は、見るときに区分の順につないで再生します</div></div>
     <div class="field"><label>YouTube の URL</label><input id="vd-url" type="url" inputmode="url" placeholder="https://youtu.be/..."><div class="hint">YouTube に「限定公開」でアップロードした映像のURLを貼り付けてください</div></div>`
     : empty('登録できる試合がありません（今日までの試合が対象です）');
   if (VM.length) { $('#vd-save').disabled = false; vdTeams(); }
@@ -849,18 +873,144 @@ async function vdSave() {
   if (!src) return toast('映像の出どころを入力してください', true);
   if (!url) return toast('YouTube の URL を貼り付けてください', true);
   $('#vd-save').disabled = true;
-  try { const r = await call('api_addVideo', $('#vd-m').value, src, url); toast('登録しました'); closeModal(); go('video', r.id); }
+  try { const r = await call('api_addVideo', $('#vd-m').value, src, url, $('#vd-part').value); toast('登録しました'); closeModal(); go('video', r.id); }
   catch (e) { $('#vd-save').disabled = false; fail(e); }
 }
-async function vdDel() {
-  if (!confirm('この映像の登録を削除しますか？（ついているコメントも消えます）')) return;
-  try { await call('api_delVideo', VD.video.id); toast('削除しました'); go('videos'); } catch (e) { fail(e); }
+async function vdDel(id) {
+  const p = TL.parts[tlIdx(id)];
+  if (!confirm(`この映像（${p.part}）の登録を削除しますか？（ついているコメントも消えます）`)) return;
+  try {
+    await call('api_delVideo', id); toast('削除しました');
+    const rest = TL.parts.filter((x) => x.id !== id);
+    if (rest.length) go('video', rest[0].id); else go('videos');
+  } catch (e) { fail(e); }
 }
 function vlFilter(q) {
-  const list = VL.filter((v) => !q || [v.match.comp, v.match.a, v.match.b, v.team, v.match.name].join(' ').includes(q))
+  // 同じ試合・同じ出どころの映像（前半・後半など）は1行にまとめる
+  const PARTS = B.consts.PARTS || [], sets = [];
+  VL.forEach((v) => { let s = sets.find((x) => x.matchId === v.matchId && x.team === v.team); if (!s) sets.push((s = { matchId: v.matchId, team: v.team, match: v.match, parts: [], comments: 0 })); s.parts.push(v); s.comments += v.comments; });
+  sets.forEach((s) => s.parts.sort((a, b) => PARTS.indexOf(a.part) - PARTS.indexOf(b.part)));
+  const list = sets.filter((s) => !q || [s.match.comp, s.match.a, s.match.b, s.team, s.match.name].join(' ').includes(q))
     .sort((a, b) => String(b.match.date).localeCompare(String(a.match.date)));
-  $('#vl').innerHTML = list.length ? `<div class="list">${list.map((v) => matchLi(v.match, `<div style="text-align:right" class="small"><div class="muted">${h(v.team)}提供</div>${v.comments ? `<div class="blue b">コメント ${v.comments}</div>` : ''}</div>`, `go('video','${v.id}')`)).join('')}</div>` : empty('見つかりませんでした');
+  $('#vl').innerHTML = list.length ? `<div class="list">${list.map((s) => matchLi(s.match, `<div style="text-align:right" class="small"><div class="muted">${h(s.team)}提供</div>${s.parts.length > 1 ? `<div class="muted">${s.parts.map((p) => h(p.part)).join('・')}</div>` : ''}${s.comments ? `<div class="blue b">コメント ${s.comments}</div>` : ''}</div>`, `go('video','${s.parts[0].id}')`)).join('')}</div>` : empty('見つかりませんでした');
 }
+
+/* ───── 分かれた映像を1本のようにつなぐ（同じ試合・同じ出どころの映像を区分の順に続けて再生） ─────
+   T＝つないだ全体での秒。各映像の長さ（dur）が分かれば、映像ID＋その映像の秒 ⇔ T を行き来できる */
+let TL = null, TL_TIMER = null;
+function tlBuild(parts) {
+  const off = []; let acc = 0;
+  parts.forEach((p, i) => { off[i] = acc; acc = acc === null || !p.dur ? null : acc + p.dur; });
+  return { parts, off, cur: 0, rate: 1 };
+}
+function tlIdx(id, tl = TL) { return tl.parts.findIndex((p) => p.id === id); }
+function tlTotal(tl = TL) { const i = tl.parts.length - 1; return tl.off[i] !== null && tl.parts[i].dur ? tl.off[i] + tl.parts[i].dur : null; }
+function toT(id, local, tl = TL) { const i = tlIdx(id, tl); return i >= 0 && tl.off[i] !== null ? tl.off[i] + local : null; }
+function fromT(t, tl = TL) {
+  for (let i = tl.parts.length - 1; i >= 0; i--) if (tl.off[i] !== null && t >= tl.off[i]) return { i, id: tl.parts[i].id, local: t - tl.off[i] };
+  return { i: 0, id: tl.parts[0].id, local: Math.max(0, t) };
+}
+// キックオフ・後半開始の位置（T）
+function tlMarks(tl = TL) {
+  const m = { ko: null, h2: null };
+  tl.parts.forEach((p) => { if (p.ko !== null) m.ko = toT(p.id, p.ko, tl); if (p.h2 !== null) m.h2 = toT(p.id, p.h2, tl); });
+  return m;
+}
+function nowT() { const y = ytOf('main'); if (!y || !TL) return null; return toT(TL.parts[TL.cur].id, y.getCurrentTime()); }
+function nowLocal() { const y = ytOf('main'); return { id: TL.parts[TL.cur].id, local: y ? Math.floor(y.getCurrentTime()) : 0 }; }
+function seekPart(id, local) {
+  const y = ytOf('main'); if (!y || !TL) return;
+  const i = tlIdx(id); if (i < 0) return;
+  if (i === TL.cur) { y.seekTo(local, true); y.playVideo(); }
+  else { TL.cur = i; y.loadVideoById({ videoId: TL.parts[i].yt, startSeconds: local }); }
+  tlDraw();
+}
+function seekT(t) { const p = fromT(t); seekPart(p.id, p.local); }
+function tlOnState(st) {
+  const y = ytOf('main'); if (!y || !TL) return;
+  if (st === 1) {   // 再生が始まった：速度を戻し、長さが分からなければ記録
+    if (TL.rate !== 1) y.setPlaybackRate(TL.rate);
+    const p = TL.parts[TL.cur], d = Math.round(y.getDuration() || 0);
+    const vid = y.getVideoData ? (y.getVideoData() || {}).video_id : p.yt;   // 別の動画が流れているときは記録しない
+    if (vid === p.yt && d > 0 && Math.abs((p.dur || 0) - d) > 1) tlSetDur(p, d);
+  }
+  if (st === 0 && TL.cur < TL.parts.length - 1) seekPart(TL.parts[TL.cur + 1].id, 0);   // 終わったら次の映像へ
+}
+function tlSetDur(p, d) {
+  p.dur = d; const cur = TL.cur; TL = Object.assign(tlBuild(TL.parts), { cur, rate: TL.rate });
+  call('api_setDuration', p.id, d).catch(() => {});
+  tlDraw(true); renderComments(); renderCaseArea(); renderMarks(); renderParts();
+}
+/* 長さが分からない映像は、見えないプレーヤーで少しだけ読み込んで長さを調べる（初回だけ） */
+async function tlProbe() {
+  for (const p of TL ? TL.parts.filter((x) => !x.dur) : []) {
+    if (!TL || !window.YT || !YT.Player) return;
+    const d = await new Promise((res) => {
+      const box = document.createElement('div'); box.style.cssText = 'position:fixed;left:-9999px;top:0;width:200px;height:120px';
+      const el = document.createElement('div'); box.appendChild(el); document.body.appendChild(box);
+      let pl = null; const done = (v) => { clearTimeout(tm); try { pl && pl.destroy(); } catch (e) {} box.remove(); res(v); };
+      const tm = setTimeout(() => done(0), 10000);
+      const read = () => { const v = pl && pl.getDuration ? Math.round(pl.getDuration()) : 0; if (v > 0) done(v); return v > 0; };
+      pl = new YT.Player(el, { videoId: p.yt, playerVars: { mute: 1, playsinline: 1, controls: 0 },
+        events: { onReady: () => { if (!read()) { pl.mute(); pl.playVideo(); } }, onStateChange: (e) => { if (e.data === 1) read(); } } });
+    });
+    if (d > 0 && TL && TL.parts.includes(p)) tlSetDur(p, d);
+  }
+}
+// 映像の下の「試合全体のバー」
+function tlBarHtml() { return `<div class="tl" id="tl"><div class="tl-track" id="tl-track" onclick="tlClick(event)"></div><div class="tl-info small"><span id="tl-now"></span><span class="spacer"></span><span id="tl-total" class="muted"></span></div></div>`; }
+function tlDraw(full) {
+  if (!TL || !$('#tl-track')) return;
+  const total = tlTotal(), n = TL.parts.length;
+  if (full || !$('#tl-track').children.length) {
+    $('#tl-track').innerHTML = TL.parts.map((p, i) => `<div class="tl-seg ${i === TL.cur ? 'on' : ''}" style="flex:${total ? p.dur : 1}" title="${h(p.part)}"><span>${n > 1 ? h(p.part) : ''}</span></div>`).join('') + '<i id="tl-pos"></i>';
+    const mk = tlMarks();
+    ['ko', 'h2'].forEach((k) => { if (total && mk[k] !== null) $('#tl-track').insertAdjacentHTML('beforeend', `<b class="tl-mark" style="left:${(mk[k] / total) * 100}%" title="${k === 'ko' ? 'キックオフ' : '後半開始'}"></b>`); });
+  }
+  $$('#tl-track .tl-seg').forEach((el, i) => el.classList.toggle('on', i === TL.cur));
+  const t = nowT();
+  if (total && t !== null) $('#tl-pos').style.left = Math.min(100, (t / total) * 100) + '%';
+  const mt = t !== null ? tToMatch(t) : '';
+  $('#tl-now').innerHTML = t === null ? '映像の長さを読み込み中…' : `${mt ? `<b class="blue">試合 ${mt}</b>　` : ''}全体 ${fmtSec(t)}${n > 1 ? `　<span class="muted">（${h(TL.parts[TL.cur].part)}）</span>` : ''}`;
+  $('#tl-total').textContent = total ? '/ ' + fmtSec(total) + (n > 1 ? `（${n}本をつないで再生）` : '') : (n > 1 ? `${n}本をつないで再生` : '');
+}
+function tlClick(e) {
+  const total = tlTotal(); if (!total) return toast('映像の長さを読み込み中です。少し待ってください');
+  const r = $('#tl-track').getBoundingClientRect();
+  seekT(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * total);
+}
+
+/* 試合の時間 ⇔ T（キックオフ位置・後半開始位置を基準にする。前後半は45分で計算）
+   試合の時間は「24:06」「45+2:10」「67:30」の形。映像の 5:24 がキックオフなら、試合の 24:06 → 映像の 29:30 */
+const HALF = 45 * 60;
+function matchToVideo(str, v) {
+  const m = String(str || '').trim().replace(/[：]/g, ':').replace(/[＋]/g, '+').match(/^(\d+)(?:\+(\d+))?:(\d{1,2})$/);
+  if (!m || (v.ko === null && v.h2 === null)) return null;
+  const base = Number(m[1]), extra = m[2] !== undefined ? Number(m[2]) : null, sec = Number(m[3]);
+  const t = (base + (extra || 0)) * 60 + sec;
+  const second = extra !== null ? base > 45 : t >= HALF;
+  if (!second) return v.ko === null ? undefined : v.ko + t;
+  if (v.h2 === null) return undefined;           // 後半の時間なのに後半開始位置がない
+  return v.h2 + (t - HALF);
+}
+function videoToMatch(sec, v) {
+  const mm = (t) => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+  if (v.h2 !== null && sec >= v.h2) { const t = HALF + (sec - v.h2); return t >= 2 * HALF ? '90+' + mm(t - 2 * HALF) : mm(t); }
+  if (v.ko === null) return '';
+  const t = sec - v.ko;
+  if (t < 0) return '0:00';
+  return t >= HALF && v.h2 !== null ? '45+' + mm(t - HALF) : mm(t);
+}
+function tToMatch(t) { return videoToMatch(t, tlMarks()); }
+function aligned() { const m = tlMarks(); return m.ko !== null || m.h2 !== null; }
+// コメント・事例の時間の表示（試合の時間が分かればそれ、なければ映像の区分＋秒）
+function timeLabel(id, local) {
+  const t = toT(id, local);
+  if (t !== null && aligned()) return '試合 ' + tToMatch(t);
+  const p = TL.parts[tlIdx(id)];
+  return (TL.parts.length > 1 && p ? p.part + ' ' : '') + fmtSec(local);
+}
+function sortKey(id, local) { const t = toT(id, local); return t !== null ? t : tlIdx(id) * 1e6 + local; }
 
 let VD = null;
 ROUTES.video = async (arg) => {
@@ -868,10 +1018,12 @@ ROUTES.video = async (arg) => {
   const [vid, at] = String(arg || '').split('@');
   VD = await call('api_video', vid);
   const v = VD.video, m = VD.match;
+  const parts = VD.parts && VD.parts.length ? VD.parts : [v];
   const crew = B.consts.OFFICIAL_ROLES.map((r) => VD.crew[r].name ? `<span class="tag">${r}　${h(VD.crew[r].name)}</span>` : '').join('');
   setMain(`<div class="vlayout"><div class="vleft">
-      <div class="pstick"><div id="player-anchor" class="player"><div id="yt-main"></div></div>${playerBar('main')}</div>
-      <div style="margin:12px 0"><div class="b" style="font-size:17px">${card(m)}</div><div class="small muted">${dl(m.date)} ${h(m.ko)}　${h(m.comp)} ${h(m.name)}／${h(m.venue)}／${h(v.team)}提供${v.by ? `（${h(v.by)}さんが登録）` : ''}${VD.canDelete ? `　<a href="#" onclick="vdDel();return false;">この映像を削除</a>` : ''}</div>
+      <div class="pstick"><div id="player-anchor" class="player"><div id="yt-main"></div></div>${tlBarHtml()}${playerBar('main')}</div>
+      <div style="margin:12px 0"><div class="b" style="font-size:17px">${card(m)}</div><div class="small muted">${dl(m.date)} ${h(m.ko)}　${h(m.comp)} ${h(m.name)}／${h(m.venue)}／${h(v.team)}提供${v.by ? `（${h(v.by)}さんが登録）` : ''}</div>
+      <div id="parts" style="margin-top:6px"></div>
       ${VD.others.length ? `<div style="margin-top:6px">${VD.others.map((o) => `<button class="btn sm" onclick="go('video','${o.id}')">${h(o.team)}提供の映像に切り替え</button>`).join(' ')}</div>` : ''}
       <div style="margin-top:8px">${crew}</div></div>
     </div><div class="vright">
@@ -884,28 +1036,45 @@ ROUTES.video = async (arg) => {
         <div class="clist" id="clist"></div>
       </div>
     </div></div>`);
-  renderMarks(); renderComments(); renderCaseArea();
-  await mountPlayer('main', 'yt-main', v.yt, { start: at ? Number(at) : 0 });
+  TL = tlBuild(parts); TL.cur = Math.max(0, tlIdx(v.id));
+  renderParts(); renderMarks(); renderComments(); renderCaseArea(); tlDraw(true);
+  await mountPlayer('main', 'yt-main', TL.parts[TL.cur].yt, { start: at ? Number(at) : 0, onState: tlOnState });
+  clearInterval(TL_TIMER); TL_TIMER = setInterval(() => tlDraw(), 500);
+  tlProbe();
 };
+// この組の映像（区分ごと）。押すとその映像の頭から。登録した人・委員会は削除できる
+function renderParts() {
+  if (!$('#parts')) return;
+  const canDel = (p) => VD.com || (p.byId && p.byId === VD.me);
+  $('#parts').innerHTML = TL.parts.length > 1 || canDel(TL.parts[0]) ? `${TL.parts.map((p) => `<span class="tag" style="padding:2px 10px"><a href="#" onclick="seekPart('${p.id}',0);return false;">${h(p.part)}${p.dur ? ' ' + fmtSec(p.dur) : ''}</a>${canDel(p) ? ` <a href="#" style="color:var(--accent)" title="この映像を削除" onclick="vdDel('${p.id}');return false;">×</a>` : ''}</span>`).join('')}` : '';
+}
 function renderMarks() {
-  const v = VD.video, edit = VD.canCase;
-  const mk = (k, label) => `<div class="row" style="flex:1 1 100%"><span class="small muted" style="width:64px">${label}</span><b class="num">${v[k] === null ? '<span class="muted">未設定</span>' : `<a href="#" onclick="seek(${v[k]});return false;">${fmtSec(v[k])}</a>`}</b>
-    ${edit ? `<button class="btn sm ghost" onclick="setMark('${k}')">今の位置にする</button>` : ''}</div>`;
+  if (!$('#marks') || !TL) return;
+  const edit = VD.canCase, mk = tlMarks();
+  const where = (k) => { const p = TL.parts.find((x) => x[k] !== null); return p ? (TL.parts.length > 1 ? `<span class="small muted">（${h(p.part)} ${fmtSec(p[k])}）</span>` : '') : ''; };
+  const row = (k, label) => { const p = TL.parts.find((x) => x[k] !== null);
+    return `<div class="row" style="flex:1 1 100%"><span class="small muted" style="width:72px;white-space:nowrap">${label}</span><b class="num">${!p ? '<span class="muted">未設定</span>' : `<a href="#" onclick="seekPart('${p.id}',${p[k]});return false;">${mk[k] !== null ? fmtSec(mk[k]) : fmtSec(p[k])}</a>`}</b>${where(k)}
+    ${edit ? `<button class="btn sm ghost" onclick="setMark('${k}')">今の位置にする</button>` : ''}</div>`; };
   $('#marks').innerHTML = `<div class="card">
-    <div class="row">${mk('ko', 'キックオフ')}${mk('h2', '後半開始')}</div>
-    <div class="small muted" style="margin-top:4px">この2つが設定されていると、レポートのKey Incidents（分）から映像の場面へ飛べます。</div></div>`;
+    <div class="row">${row('ko', 'キックオフ')}${row('h2', '後半開始')}</div>
+    <div class="small muted" style="margin-top:4px">この2つが設定されていると、試合の時間（24:06 など）で場面を探したり、レポートのKey Incidents（分）から映像へ飛べます。${TL.parts.length > 1 ? '映像が分かれていても、全体で1回ずつ設定すれば大丈夫です。' : ''}</div></div>`;
 }
 async function setMark(k) {
-  const v = VD.video; v[k] = curTime();
-  try { await call('api_setMarks', v.id, v.ko, v.h2); renderMarks(); toast('設定しました'); } catch (e) { fail(e); }
+  const n = nowLocal();
+  try {
+    await call('api_setMark', n.id, k, n.local);
+    TL.parts.forEach((p) => (p[k] = p.id === n.id ? n.local : null));
+    renderMarks(); renderComments(); renderCaseArea(); tlDraw(true); toast('設定しました');
+  } catch (e) { fail(e); }
 }
 let CM_FILTER = '';
 function renderComments() {
+  if (!$('#clist') || !TL) return;
   const targets = [...new Set(VD.comments.map((c) => c.target).filter(Boolean))];
   $('#cm-filter').innerHTML = targets.length > 1 ? ['', ...targets].map((t) => `<button class="chip ${CM_FILTER === t ? 'on' : ''}" onclick="CM_FILTER='${t}';renderComments()">${t || 'すべて'}</button>`).join('') : '';
-  const list = VD.comments.filter((c) => !CM_FILTER || c.target === CM_FILTER).sort((a, b) => a.sec - b.sec);
-  $('#clist').innerHTML = list.length ? list.map((c) => `<div class="citem" onclick="seek(${c.sec})">
-      <div class="row" style="gap:6px"><span class="ctime">▶ ${fmtSec(c.sec)}</span>${c.target ? `<span class="pill">${h(c.target)}</span>` : ''}${c.eval ? `<span class="pill ${c.eval === '良い' ? 'ok' : 'ng'}">${h(c.eval)}</span>` : ''}${c.cat ? `<span class="small muted">${h(c.cat)}</span>` : ''}</div>
+  const list = VD.comments.filter((c) => !CM_FILTER || c.target === CM_FILTER).sort((a, b) => sortKey(a.videoId, a.sec) - sortKey(b.videoId, b.sec));
+  $('#clist').innerHTML = list.length ? list.map((c) => `<div class="citem" onclick="seekPart('${c.videoId}',${c.sec})">
+      <div class="row" style="gap:6px"><span class="ctime">▶ ${timeLabel(c.videoId, c.sec)}</span>${c.target ? `<span class="pill">${h(c.target)}</span>` : ''}${c.eval ? `<span class="pill ${c.eval === '良い' ? 'ok' : 'ng'}">${h(c.eval)}</span>` : ''}${c.cat ? `<span class="small muted">${h(c.cat)}</span>` : ''}</div>
       <div class="pre" style="margin-top:4px">${h(c.text)}</div>
       <div class="small muted">${h(c.by)}　${h(c.at)}${(c.byId === VD.me || VD.com) ? `　<a href="#" onclick="event.stopPropagation();cmDel('${c.id}');return false;">削除</a>` : ''}</div></div>`).join('')
     : `<p class="muted small" style="padding:12px 16px;margin:0">コメントはまだありません。${VD.canComment ? '映像を止めたところで「＋ 今の場面にコメント」を押すと、その時間で書けます。' : ''}</p>`;
@@ -915,10 +1084,25 @@ function catOptions(target) {
   const list = target === '主審' ? C.REF_ITEMS : (target === '副審1' || target === '副審2') ? C.AR_ITEMS : [];
   return '<option value="">分類なし</option>' + list.map((x) => `<option>${x.k} ${h(x.t)}</option>`).join('');
 }
+/* 時間の入力欄：試合の時間が使えればそれ（24:06）、なければ全体の時間、それもなければ今の映像の時間 */
+function tMode() { return aligned() ? 'match' : tlTotal() !== null || TL.parts.length === 1 ? 'all' : 'part'; }
+function fmtIn(id, local) { const t = toT(id, local); const m = tMode(); return m === 'match' && t !== null ? tToMatch(t) : m !== 'part' && t !== null ? fmtSec(t) : fmtSec(local); }
+// 入力 → {id, local}。エラーは文字列で返す
+function parseIn(str) {
+  const m = tMode();
+  let t;
+  if (m === 'match') { t = matchToVideo(str, tlMarks()); if (t === undefined) return '後半の時間です。先に「後半開始」の位置を設定してください'; if (t === null) return '時間は「24:06」「45+2:10」の形で入力してください'; }
+  else { t = parseSec(str); if (t === null) return '時間は 12:34 の形で入力してください'; if (m === 'part') return { id: TL.parts[TL.cur].id, local: t }; }
+  if (t < 0) return 'この映像には入っていない時間です';
+  const p = fromT(t); return { id: p.id, local: Math.round(p.local) };
+}
+function inLabel() { const m = tMode(); return m === 'match' ? '（試合の時間）' : m === 'all' ? '（映像の時間）' : `（${h(TL.parts[TL.cur].part)}の時間）`; }
+function inHint(str) { const r = parseIn(str); return typeof r === 'string' ? `<span class="red">${r}</span>` : tMode() === 'match' ? `映像では ${TL.parts.length > 1 ? h(TL.parts[tlIdx(r.id)].part) + ' ' : ''}${fmtSec(r.local)}` : ''; }
+
 let CMF = { target: '主審', eval: '' };
 function cmOpen() {
   pausePlayer();
-  const s = curTime();
+  const n = nowLocal();
   const chips = (k, list) => list.map((x) => `<button type="button" class="chip ${CMF[k] === x ? 'on' : ''}" onclick="CMF.${k}=CMF.${k}==='${x}'&&'${k}'==='eval'?'':'${x}';cmChips()">${x}</button>`).join('');
   window.cmChips = () => {
     $('#cm-tg').innerHTML = chips('target', ['主審', '副審1', '副審2', '第4審', 'チーム全体']);
@@ -927,21 +1111,23 @@ function cmOpen() {
     $('#cm-cat').hidden = !/主審|副審/.test(CMF.target);
   };
   $('#cm-form').innerHTML = `<div style="padding:12px 16px;background:var(--pale);border-bottom:1px solid var(--line)">
-    <div class="row" style="margin-bottom:8px"><span class="flabel" style="margin:0">時間</span><input id="cm-t" value="${fmtSec(s)}" class="w-s num"><button class="btn sm ghost" onclick="$('#cm-t').value=fmtSec(curTime())">今の位置</button></div>
+    <div class="row" style="margin-bottom:2px"><span class="flabel" style="margin:0">時間 <span class="small muted">${inLabel()}</span></span><input id="cm-t" value="${fmtIn(n.id, n.local)}" class="w-s num" oninput="$('#cm-t-p').innerHTML=inHint(this.value)"><button class="btn sm ghost" onclick="const n=nowLocal();$('#cm-t').value=fmtIn(n.id,n.local);$('#cm-t-p').innerHTML=inHint($('#cm-t').value)">今の位置</button></div>
+    <div class="hint" id="cm-t-p" style="margin-bottom:8px"></div>
     <div class="flabel">だれについて</div><div id="cm-tg"></div>
     <select id="cm-cat" style="margin-bottom:8px"></select>
     <div class="flabel">評価</div><div id="cm-ev"></div>
     <textarea id="cm-text" placeholder="コメント"></textarea>
     <div class="row" style="margin-top:8px"><span class="spacer"></span><button class="btn sm" onclick="$('#cm-form').innerHTML=''">やめる</button><button class="btn sm primary" onclick="cmSave()">追加する</button></div></div>`;
   cmChips();
+  $('#cm-t-p').innerHTML = inHint($('#cm-t').value);
   $('#cm-text').focus();
 }
 async function cmSave() {
-  const sec = parseSec($('#cm-t').value);
-  if (sec === null) return toast('時間は 12:34 の形で入力してください', true);
+  const r = parseIn($('#cm-t').value);
+  if (typeof r === 'string') return toast(r, true);
   if (!$('#cm-text').value.trim()) return toast('コメントを書いてください', true);
   try {
-    VD.comments = await call('api_addComment', VD.video.id, { sec, target: CMF.target, cat: /主審|副審/.test(CMF.target) ? $('#cm-cat').value : '', eval: CMF.eval, text: $('#cm-text').value });
+    VD.comments = await call('api_addComment', r.id, { sec: r.local, target: CMF.target, cat: /主審|副審/.test(CMF.target) ? $('#cm-cat').value : '', eval: CMF.eval, text: $('#cm-text').value });   // 組全体のコメントが返る
     $('#cm-form').innerHTML = ''; renderComments(); toast('追加しました');
   } catch (e) { fail(e); }
 }
@@ -949,82 +1135,36 @@ async function cmDel(id) {
   if (!confirm('このコメントを削除しますか？')) return;
   try { await call('api_delComment', id); VD.comments = VD.comments.filter((c) => c.id !== id); renderComments(); } catch (e) { fail(e); }
 }
-/* 試合の時間 ⇔ 映像の時間（キックオフ位置・後半開始位置を基準にする。前後半は45分で計算）
-   試合の時間は「24:06」「45+2:10」「67:30」の形。映像の 5:24 がキックオフなら、試合の 24:06 → 映像の 29:30 */
-const HALF = 45 * 60;
-function matchToVideo(str, v) {
-  const m = String(str || '').trim().replace(/[：]/g, ':').replace(/[＋]/g, '+').match(/^(\d+)(?:\+(\d+))?:(\d{1,2})$/);
-  if (!m || v.ko === null) return null;
-  const base = Number(m[1]), extra = m[2] !== undefined ? Number(m[2]) : null, sec = Number(m[3]);
-  const t = (base + (extra || 0)) * 60 + sec;
-  const second = extra !== null ? base > 45 : t >= HALF;
-  if (!second) return v.ko + t;
-  if (v.h2 === null) return undefined;           // 後半の時間なのに後半開始位置がない
-  return v.h2 + (t - HALF);
-}
-function videoToMatch(sec, v) {
-  if (v.ko === null) return '';
-  const mm = (t) => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
-  if (v.h2 !== null && sec >= v.h2) { const t = HALF + (sec - v.h2); return t >= 2 * HALF ? '90+' + mm(t - 2 * HALF) : mm(t); }
-  const t = sec - v.ko;
-  if (t < 0) return '0:00';
-  return t >= HALF && v.h2 !== null ? '45+' + mm(t - HALF) : mm(t);
-}
-function caseTime(c, v) { return v && v.ko !== null ? `試合 ${videoToMatch(c.start, v)}〜${videoToMatch(c.end, v)}` : `${fmtSec(c.start)}〜${fmtSec(c.end)}`; }
+function caseTime(c) { return `${timeLabel(c.videoId, c.start)}〜${fmtIn(c.videoId, c.end)}`; }
 
 function renderCaseArea() {
-  const v = VD.video;
-  const list = VD.cases.map((c) => `<div class="citem" onclick="seek(${c.start})"><div class="row" style="gap:6px"><span class="ctime">▶ ${caseTime(c, v)}</span>${v.ko !== null ? `<span class="small muted">映像 ${fmtSec(c.start)}</span>` : ''}<span class="spacer"></span>
+  if (!$('#case-area') || !TL) return;
+  const list = VD.cases.slice().sort((a, b) => sortKey(a.videoId, a.start) - sortKey(b.videoId, b.start)).map((c) => `<div class="citem" onclick="seekPart('${c.videoId}',${c.start})"><div class="row" style="gap:6px"><span class="ctime">▶ ${caseTime(c)}</span><span class="spacer"></span>
       ${c.byId === VD.me || VD.com ? `<a href="#" class="small" onclick="event.stopPropagation();caseEdit('${c.id}');return false;">編集</a><a href="#" class="small" style="color:var(--accent);margin-left:10px" onclick="event.stopPropagation();caseDelHere('${c.id}');return false;">削除</a>` : ''}</div>
       <b>${h(c.title)}</b><div>${c.tags.map((t) => `<span class="tag">${h(t)}</span>`).join('')}</div></div>`).join('');
   if (!list && !VD.canCase) { $('#case-area').innerHTML = ''; return; }
+  const open = $('#case-form') && $('#case-form').innerHTML;
+  if (open) return;   // 入力中は描き直さない
   $('#case-area').innerHTML = `<div class="card" style="padding:0"><div class="row" style="padding:12px 16px;border-bottom:1px solid var(--line)"><h2 style="margin:0">この映像の事例</h2><span class="spacer"></span>${VD.canCase ? `<button class="btn sm" onclick="caseForm()">＋ 事例に登録</button>` : ''}</div>
     <div id="case-form"></div>${list || '<p class="muted small" style="padding:12px 16px;margin:0">登録された事例はありません。</p>'}</div>`;
 }
-let CS_MODE = 'match';   // 事例の時間の入れ方：match＝試合の時間、video＝映像の時間
-function csTimeVal(sec) { const v = VD.video; return CS_MODE === 'match' && v.ko !== null ? videoToMatch(sec, v) : fmtSec(sec); }
-function csParse(str) {
-  const v = VD.video;
-  if (CS_MODE === 'match' && v.ko !== null) return matchToVideo(str, v);
-  return parseSec(str);
-}
-function csPreview() {
-  ['s', 'e'].forEach((k) => {
-    const el = $('#cs-' + k + '-p'); if (!el) return;
-    if (CS_MODE !== 'match' || VD.video.ko === null) { el.textContent = ''; return; }
-    const sec = csParse($('#cs-' + k).value);
-    el.innerHTML = sec === undefined ? '<span class="red">後半の時間です。先に「後半開始」の位置を設定してください</span>' : sec === null ? '<span class="red">「24:06」「45+2:10」の形で入力</span>' : `映像では ${fmtSec(sec)}`;
-  });
-}
-function csMode(mode) {
-  const s = csParse($('#cs-s').value), e = csParse($('#cs-e').value);
-  CS_MODE = mode;
-  if (typeof s === 'number') $('#cs-s').value = csTimeVal(s);
-  if (typeof e === 'number') $('#cs-e').value = csTimeVal(e);
-  $$('#cs-mode button').forEach((b) => b.classList.toggle('on', b.dataset.m === mode));
-  $$('.cs-tl').forEach((l) => (l.textContent = mode === 'match' ? '（試合の時間）' : '（映像の時間）'));
-  csPreview();
-}
 function caseFormHtml(x, withTimes) {
   const tags = B.consts.tags;
-  const hasKo = withTimes && VD && VD.video.ko !== null;
-  if (withTimes && !hasKo) CS_MODE = 'video';
-  const tl = `<span class="cs-tl small muted">${CS_MODE === 'match' ? '（試合の時間）' : '（映像の時間）'}</span>`;
-  const timeField = (k, label, sec) => `<div class="field"><label>${label} ${tl}</label><div class="row" style="flex-wrap:nowrap"><input id="cs-${k}" value="${csTimeVal(sec)}" class="num" oninput="csPreview()"><button class="btn sm ghost" onclick="$('#cs-${k}').value=csTimeVal(curTime());csPreview()">今の位置</button></div><div class="hint" id="cs-${k}-p"></div></div>`;
+  const timeField = (k, label, id, local) => `<div class="field"><label>${label} <span class="small muted">${inLabel()}</span></label><div class="row" style="flex-wrap:nowrap"><input id="cs-${k}" value="${fmtIn(id, local)}" class="num" oninput="csPreview()"><button class="btn sm ghost" onclick="const n=nowLocal();$('#cs-${k}').value=fmtIn(n.id,n.local);csPreview()">今の位置</button></div><div class="hint" id="cs-${k}-p"></div></div>`;
   return `<div style="padding:12px 16px;background:var(--pale);border-bottom:1px solid var(--line)">
-    ${withTimes ? `${hasKo ? `<div class="field"><label>時間の入れ方</label><div class="seg sm" id="cs-mode" style="max-width:360px"><button type="button" data-m="match" class="${CS_MODE === 'match' ? 'on' : ''}" onclick="csMode('match')">試合の時間</button><button type="button" data-m="video" class="${CS_MODE === 'video' ? 'on' : ''}" onclick="csMode('video')">映像の時間</button></div>
-      <div class="hint">試合の時間は「24:06」「45+2:10」「67:30」の形。キックオフ位置（${fmtSec(VD.video.ko)}）${VD.video.h2 !== null ? `と後半開始位置（${fmtSec(VD.video.h2)}）` : ''}をもとに映像の時間に直します</div></div>`
-      : '<p class="small muted" style="margin:0 0 8px">映像の時間で入力します。上の「キックオフ」の位置を設定すると、試合の時間（例：24:06）で入力できます。</p>'}
-    <div class="grid2">${timeField('s', '開始', x.start)}${timeField('e', '終了', x.end)}</div>` : ''}
+    ${withTimes ? `${aligned() ? '<p class="small muted" style="margin:0 0 8px">試合の時間（「24:06」「45+2:10」「67:30」の形）で入力します。キックオフ・後半開始の位置をもとに映像の場面に直します。</p>'
+      : '<p class="small muted" style="margin:0 0 8px">映像の時間で入力します。右上の「キックオフ」の位置を設定すると、試合の時間（例：24:06）で入力できます。</p>'}
+    <div class="grid2">${timeField('s', '開始', x.videoId, x.start)}${timeField('e', '終了', x.videoId, x.end)}</div>` : ''}
     <div class="field"><label>タイトル</label><input id="cs-title" value="${h(x.title || '')}" placeholder="例：PA内での接触、PKの判断"></div>
     <div class="field"><label>テーマ（複数可）</label><div id="cs-tags">${tags.map((t) => `<button type="button" class="chip ${(x.tags || []).includes(t) ? 'on' : ''}" onclick="this.classList.toggle('on')">${h(t)}</button>`).join('')}</div></div>
     <div class="field"><label>正しい判定</label><input id="cs-correct" value="${h(x.correct || '')}" placeholder="例：直接FK＋警告"></div>
     <div class="field"><label>解説</label><textarea id="cs-text">${h(x.text || '')}</textarea></div>
     <div class="field"><label>研修資料のURL（任意）</label><input id="cs-mat" value="${h(x.material || '')}" placeholder="GoogleドライブのPDFやスライドなど"></div>
     <p class="small muted">事例ライブラリでは、担当審判員の名前は表示されません。</p>
-    <div class="row"><span class="spacer"></span><button class="btn sm" onclick="this.closest('#case-form').innerHTML=''">やめる</button><button class="btn primary sm" onclick="caseSave('${x.id || ''}','${x.videoId || (VD && VD.video.id) || ''}',${withTimes ? 'null' : x.start},${withTimes ? 'null' : x.end})">保存</button></div></div>`;
+    <div class="row"><span class="spacer"></span><button class="btn sm" onclick="this.closest('#case-form').innerHTML='';renderCaseArea()">やめる</button><button class="btn primary sm" onclick="caseSave('${x.id || ''}','${x.videoId || ''}',${withTimes ? 'null' : x.start},${withTimes ? 'null' : x.end})">保存</button></div></div>`;
 }
-function caseForm() { pausePlayer(); const s = curTime(); $('#case-form').innerHTML = caseFormHtml({ start: Math.max(0, s - 10), end: s + 10 }, true); csPreview(); $('#case-form').scrollIntoView({ block: 'nearest' }); }
+function csPreview() { ['s', 'e'].forEach((k) => { const el = $('#cs-' + k + '-p'); if (el) el.innerHTML = inHint($('#cs-' + k).value); }); }
+function caseForm() { pausePlayer(); const n = nowLocal(); $('#case-form').innerHTML = caseFormHtml({ videoId: n.id, start: Math.max(0, n.local - 10), end: n.local + 10 }, true); csPreview(); $('#case-form').scrollIntoView({ block: 'nearest' }); }
 function caseEdit(id) { const c = VD.cases.find((x) => x.id === id); $('#case-form').innerHTML = caseFormHtml(c, true); csPreview(); $('#case-form').scrollIntoView({ block: 'nearest' }); }
 async function caseDelHere(id) {
   if (!confirm('この事例を削除しますか？（映像そのものは消えません）')) return;
@@ -1033,14 +1173,21 @@ async function caseDelHere(id) {
 async function caseSave(id, videoId, start, end) {
   const x = { id, videoId, title: $('#cs-title').value, correct: $('#cs-correct').value, text: $('#cs-text').value, material: $('#cs-mat').value,
     tags: $$('#cs-tags .chip.on').map((b) => b.textContent) };
-  x.start = start !== null ? start : csParse($('#cs-s').value); x.end = end !== null ? end : csParse($('#cs-e').value);
-  if (x.start === undefined || x.end === undefined) return toast('後半の時間です。先に「後半開始」の位置を設定してください', true);
-  if (x.start === null || x.end === null) return toast(CS_MODE === 'match' && VD && VD.video.ko !== null ? '時間は「24:06」「45+2:10」の形で入力してください' : '時間は 12:34 の形で入力してください', true);
+  if (start !== null) { x.start = start; x.end = end; }
+  else {
+    const s0 = parseIn($('#cs-s').value), e0 = parseIn($('#cs-e').value);
+    if (typeof s0 === 'string') return toast(s0, true);
+    if (typeof e0 === 'string') return toast(e0, true);
+    // 事例は開始の映像にまとめる（終了がつぎの映像にかかっても、開始の映像の秒で持つ）
+    x.videoId = s0.id; x.start = s0.local;
+    const te = toT(e0.id, e0.local), ts = toT(s0.id, s0.local);
+    x.end = te !== null && ts !== null ? s0.local + (te - ts) : (e0.id === s0.id ? e0.local : s0.local + 20);
+  }
   if (x.end <= x.start) return toast('終了は開始より後にしてください', true);
   if (!x.title.trim()) return toast('タイトルを入力してください', true);
   try {
     await call('api_addCase', x); toast('保存しました');
-    if (CUR === 'video') { VD = await call('api_video', VD.video.id); renderCaseArea(); } else { closeModal(); go('cases'); }
+    if (CUR === 'video') { const r = await call('api_video', VD.video.id); VD.cases = r.cases; $('#case-form').innerHTML = ''; renderCaseArea(); } else { closeModal(); go('cases'); }
   } catch (e) { fail(e); }
 }
 
@@ -1526,18 +1673,22 @@ let TM = null;
 ROUTES.team = async () => { head('試合映像の提供'); TM = await get('api_teamHome'); renderTeam(); };
 function renderTeam() {
   head(TM.team + '　試合映像の提供');
-  const todo = TM.matches.filter((m) => !m.video).length;
+  const todo = TM.matches.filter((m) => !m.videos.length).length;
+  const parts = B.consts.PARTS || ['試合全体'];
   setMain(`<div class="card pale"><p style="margin:0 0 6px"><b>試合映像のご提供ありがとうございます。</b></p>
     <ol class="small" style="margin:0;padding-left:20px"><li>YouTubeに<b>「限定公開」</b>でアップロード</li><li>そのURLを下の試合の欄に貼り付けて「登録」</li></ol>
-    <p class="small muted" style="margin:8px 0 0">映像は北海道の強化審判員の研修だけに使います。研修教材として使う場合があるため、登録した映像は削除しないようお願いします。</p></div>
-    ${TM.matches.length ? `<h2>${todo ? `未登録 ${todo}試合` : 'すべて登録済みです'}</h2>${TM.matches.map((m, i) => `<div class="mcard"><div class="mhead">${dateBox(m.date)}<div class="main"><div class="t">${card(m)}</div><div class="s">${h(m.comp)} ${h(m.name)}</div></div>${m.video ? '<span class="pill ok">登録済み</span>' : ''}</div>
-      <div style="padding:12px 16px">${m.video ? `<div class="row"><a class="btn sm" href="${h(m.video.url)}" target="_blank" rel="noopener">YouTubeで確認</a><span class="spacer"></span><button class="btn sm ghost" onclick="tmDel('${m.video.id}')">登録を取り消す</button></div>`
-        : `<div class="row" style="flex-wrap:nowrap"><input id="tm-${i}" type="url" inputmode="url" placeholder="https://youtu.be/..." style="flex:1"><button class="btn primary" onclick="tmSave(${i})">登録</button></div>`}</div></div>`).join('')}`
+    <p class="small muted" style="margin:8px 0 0">映像が前半・後半などに分かれているときは、区分を選んで1本ずつ登録してください（見るときは自動でつないで再生されます）。映像は北海道の強化審判員の研修だけに使います。研修教材として使う場合があるため、登録した映像は削除しないようお願いします。</p></div>
+    ${TM.matches.length ? `<h2>${todo ? `未登録 ${todo}試合` : 'すべて登録済みです'}</h2>${TM.matches.map((m, i) => `<div class="mcard"><div class="mhead">${dateBox(m.date)}<div class="main"><div class="t">${card(m)}</div><div class="s">${h(m.comp)} ${h(m.name)}</div></div>${m.videos.length ? `<span class="pill ok">${m.videos.length}本 登録済み</span>` : ''}</div>
+      <div style="padding:12px 16px">
+        ${m.videos.map((v) => `<div class="row" style="margin-bottom:8px"><span class="pill">${h(v.part)}</span><a class="small" href="${h(v.url)}" target="_blank" rel="noopener">YouTubeで確認</a><span class="spacer"></span><button class="btn sm ghost" onclick="tmDel('${v.id}')">取り消す</button></div>`).join('')}
+        <div class="row" style="flex-wrap:nowrap;gap:6px"><select id="tm-p-${i}" style="width:auto;flex:none">${parts.map((p) => `<option ${m.videos.some((v) => v.part === p) ? 'disabled' : ''}>${p}</option>`).join('')}</select>
+        <input id="tm-${i}" type="url" inputmode="url" placeholder="https://youtu.be/..." style="flex:1;min-width:0"><button class="btn primary" onclick="tmSave(${i})">${m.videos.length ? '追加' : '登録'}</button></div></div></div>`).join('')}`
     : empty('登録できる試合はまだありません')}`);
+  TM.matches.forEach((m, i) => { const sel = $('#tm-p-' + i); if (sel && sel.selectedOptions[0] && sel.selectedOptions[0].disabled) { const o = [...sel.options].find((x) => !x.disabled); if (o) sel.value = o.value; } });
 }
 async function tmSave(i) {
   if (!$('#tm-' + i).value.trim()) return toast('URLを貼り付けてください', true);
-  try { TM = await call('api_teamSaveVideo', TM.matches[i].id, $('#tm-' + i).value); renderTeam(); toast('登録しました。ありがとうございます'); } catch (e) { fail(e); }
+  try { TM = await call('api_teamSaveVideo', TM.matches[i].id, $('#tm-' + i).value, $('#tm-p-' + i).value); renderTeam(); toast('登録しました。ありがとうございます'); } catch (e) { fail(e); }
 }
 async function tmDel(id) {
   if (!confirm('この映像の登録を取り消しますか？')) return;
