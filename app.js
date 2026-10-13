@@ -941,17 +941,73 @@ async function cmDel(id) {
   if (!confirm('このコメントを削除しますか？')) return;
   try { await call('api_delComment', id); VD.comments = VD.comments.filter((c) => c.id !== id); renderComments(); } catch (e) { fail(e); }
 }
+/* 試合の時間 ⇔ 映像の時間（キックオフ位置・後半開始位置を基準にする。前後半は45分で計算）
+   試合の時間は「24:06」「45+2:10」「67:30」の形。映像の 5:24 がキックオフなら、試合の 24:06 → 映像の 29:30 */
+const HALF = 45 * 60;
+function matchToVideo(str, v) {
+  const m = String(str || '').trim().replace(/[：]/g, ':').replace(/[＋]/g, '+').match(/^(\d+)(?:\+(\d+))?:(\d{1,2})$/);
+  if (!m || v.ko === null) return null;
+  const base = Number(m[1]), extra = m[2] !== undefined ? Number(m[2]) : null, sec = Number(m[3]);
+  const t = (base + (extra || 0)) * 60 + sec;
+  const second = extra !== null ? base > 45 : t >= HALF;
+  if (!second) return v.ko + t;
+  if (v.h2 === null) return undefined;           // 後半の時間なのに後半開始位置がない
+  return v.h2 + (t - HALF);
+}
+function videoToMatch(sec, v) {
+  if (v.ko === null) return '';
+  const mm = (t) => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+  if (v.h2 !== null && sec >= v.h2) { const t = HALF + (sec - v.h2); return t >= 2 * HALF ? '90+' + mm(t - 2 * HALF) : mm(t); }
+  const t = sec - v.ko;
+  if (t < 0) return '0:00';
+  return t >= HALF && v.h2 !== null ? '45+' + mm(t - HALF) : mm(t);
+}
+function caseTime(c, v) { return v && v.ko !== null ? `試合 ${videoToMatch(c.start, v)}〜${videoToMatch(c.end, v)}` : `${fmtSec(c.start)}〜${fmtSec(c.end)}`; }
+
 function renderCaseArea() {
-  const list = VD.cases.map((c) => `<div class="citem" onclick="seek(${c.start})"><span class="ctime">▶ ${fmtSec(c.start)}〜${fmtSec(c.end)}</span><b>${h(c.title)}</b><div>${c.tags.map((t) => `<span class="tag">${h(t)}</span>`).join('')}</div></div>`).join('');
+  const v = VD.video;
+  const list = VD.cases.map((c) => `<div class="citem" onclick="seek(${c.start})"><div class="row" style="gap:6px"><span class="ctime">▶ ${caseTime(c, v)}</span>${v.ko !== null ? `<span class="small muted">映像 ${fmtSec(c.start)}</span>` : ''}<span class="spacer"></span>
+      ${c.byId === VD.me || VD.com ? `<a href="#" class="small" onclick="event.stopPropagation();caseEdit('${c.id}');return false;">編集</a><a href="#" class="small" style="color:var(--accent);margin-left:10px" onclick="event.stopPropagation();caseDelHere('${c.id}');return false;">削除</a>` : ''}</div>
+      <b>${h(c.title)}</b><div>${c.tags.map((t) => `<span class="tag">${h(t)}</span>`).join('')}</div></div>`).join('');
   if (!list && !VD.canCase) { $('#case-area').innerHTML = ''; return; }
   $('#case-area').innerHTML = `<div class="card" style="padding:0"><div class="row" style="padding:12px 16px;border-bottom:1px solid var(--line)"><h2 style="margin:0">この映像の事例</h2><span class="spacer"></span>${VD.canCase ? `<button class="btn sm" onclick="caseForm()">＋ 事例に登録</button>` : ''}</div>
     <div id="case-form"></div>${list || '<p class="muted small" style="padding:12px 16px;margin:0">登録された事例はありません。</p>'}</div>`;
 }
+let CS_MODE = 'match';   // 事例の時間の入れ方：match＝試合の時間、video＝映像の時間
+function csTimeVal(sec) { const v = VD.video; return CS_MODE === 'match' && v.ko !== null ? videoToMatch(sec, v) : fmtSec(sec); }
+function csParse(str) {
+  const v = VD.video;
+  if (CS_MODE === 'match' && v.ko !== null) return matchToVideo(str, v);
+  return parseSec(str);
+}
+function csPreview() {
+  ['s', 'e'].forEach((k) => {
+    const el = $('#cs-' + k + '-p'); if (!el) return;
+    if (CS_MODE !== 'match' || VD.video.ko === null) { el.textContent = ''; return; }
+    const sec = csParse($('#cs-' + k).value);
+    el.innerHTML = sec === undefined ? '<span class="red">後半の時間です。先に「後半開始」の位置を設定してください</span>' : sec === null ? '<span class="red">「24:06」「45+2:10」の形で入力</span>' : `映像では ${fmtSec(sec)}`;
+  });
+}
+function csMode(mode) {
+  const s = csParse($('#cs-s').value), e = csParse($('#cs-e').value);
+  CS_MODE = mode;
+  if (typeof s === 'number') $('#cs-s').value = csTimeVal(s);
+  if (typeof e === 'number') $('#cs-e').value = csTimeVal(e);
+  $$('#cs-mode button').forEach((b) => b.classList.toggle('on', b.dataset.m === mode));
+  $$('.cs-tl').forEach((l) => (l.textContent = mode === 'match' ? '（試合の時間）' : '（映像の時間）'));
+  csPreview();
+}
 function caseFormHtml(x, withTimes) {
   const tags = B.consts.tags;
+  const hasKo = withTimes && VD && VD.video.ko !== null;
+  if (withTimes && !hasKo) CS_MODE = 'video';
+  const tl = `<span class="cs-tl small muted">${CS_MODE === 'match' ? '（試合の時間）' : '（映像の時間）'}</span>`;
+  const timeField = (k, label, sec) => `<div class="field"><label>${label} ${tl}</label><div class="row" style="flex-wrap:nowrap"><input id="cs-${k}" value="${csTimeVal(sec)}" class="num" oninput="csPreview()"><button class="btn sm ghost" onclick="$('#cs-${k}').value=csTimeVal(curTime());csPreview()">今の位置</button></div><div class="hint" id="cs-${k}-p"></div></div>`;
   return `<div style="padding:12px 16px;background:var(--pale);border-bottom:1px solid var(--line)">
-    ${withTimes ? `<div class="grid2"><div class="field"><label>開始</label><div class="row" style="flex-wrap:nowrap"><input id="cs-s" value="${fmtSec(x.start)}" class="num"><button class="btn sm ghost" onclick="$('#cs-s').value=fmtSec(curTime())">今の位置</button></div></div>
-    <div class="field"><label>終了</label><div class="row" style="flex-wrap:nowrap"><input id="cs-e" value="${fmtSec(x.end)}" class="num"><button class="btn sm ghost" onclick="$('#cs-e').value=fmtSec(curTime())">今の位置</button></div></div></div>` : ''}
+    ${withTimes ? `${hasKo ? `<div class="field"><label>時間の入れ方</label><div class="seg sm" id="cs-mode" style="max-width:360px"><button type="button" data-m="match" class="${CS_MODE === 'match' ? 'on' : ''}" onclick="csMode('match')">試合の時間</button><button type="button" data-m="video" class="${CS_MODE === 'video' ? 'on' : ''}" onclick="csMode('video')">映像の時間</button></div>
+      <div class="hint">試合の時間は「24:06」「45+2:10」「67:30」の形。キックオフ位置（${fmtSec(VD.video.ko)}）${VD.video.h2 !== null ? `と後半開始位置（${fmtSec(VD.video.h2)}）` : ''}をもとに映像の時間に直します</div></div>`
+      : '<p class="small muted" style="margin:0 0 8px">映像の時間で入力します。上の「キックオフ」の位置を設定すると、試合の時間（例：24:06）で入力できます。</p>'}
+    <div class="grid2">${timeField('s', '開始', x.start)}${timeField('e', '終了', x.end)}</div>` : ''}
     <div class="field"><label>タイトル</label><input id="cs-title" value="${h(x.title || '')}" placeholder="例：PA内での接触、PKの判断"></div>
     <div class="field"><label>テーマ（複数可）</label><div id="cs-tags">${tags.map((t) => `<button type="button" class="chip ${(x.tags || []).includes(t) ? 'on' : ''}" onclick="this.classList.toggle('on')">${h(t)}</button>`).join('')}</div></div>
     <div class="field"><label>正しい判定</label><input id="cs-correct" value="${h(x.correct || '')}" placeholder="例：直接FK＋警告"></div>
@@ -960,12 +1016,19 @@ function caseFormHtml(x, withTimes) {
     <p class="small muted">事例ライブラリでは、担当審判員の名前は表示されません。</p>
     <div class="row"><span class="spacer"></span><button class="btn sm" onclick="this.closest('#case-form').innerHTML=''">やめる</button><button class="btn primary sm" onclick="caseSave('${x.id || ''}','${x.videoId || (VD && VD.video.id) || ''}',${withTimes ? 'null' : x.start},${withTimes ? 'null' : x.end})">保存</button></div></div>`;
 }
-function caseForm() { pausePlayer(); const s = curTime(); $('#case-form').innerHTML = caseFormHtml({ start: Math.max(0, s - 10), end: s + 10 }, true); }
+function caseForm() { pausePlayer(); const s = curTime(); $('#case-form').innerHTML = caseFormHtml({ start: Math.max(0, s - 10), end: s + 10 }, true); csPreview(); $('#case-form').scrollIntoView({ block: 'nearest' }); }
+function caseEdit(id) { const c = VD.cases.find((x) => x.id === id); $('#case-form').innerHTML = caseFormHtml(c, true); csPreview(); $('#case-form').scrollIntoView({ block: 'nearest' }); }
+async function caseDelHere(id) {
+  if (!confirm('この事例を削除しますか？（映像そのものは消えません）')) return;
+  try { await call('api_delCase', id); VD.cases = VD.cases.filter((c) => c.id !== id); renderCaseArea(); toast('削除しました'); } catch (e) { fail(e); }
+}
 async function caseSave(id, videoId, start, end) {
   const x = { id, videoId, title: $('#cs-title').value, correct: $('#cs-correct').value, text: $('#cs-text').value, material: $('#cs-mat').value,
     tags: $$('#cs-tags .chip.on').map((b) => b.textContent) };
-  x.start = start !== null ? start : parseSec($('#cs-s').value); x.end = end !== null ? end : parseSec($('#cs-e').value);
-  if (x.start === null || x.end === null) return toast('時間は 12:34 の形で入力してください', true);
+  x.start = start !== null ? start : csParse($('#cs-s').value); x.end = end !== null ? end : csParse($('#cs-e').value);
+  if (x.start === undefined || x.end === undefined) return toast('後半の時間です。先に「後半開始」の位置を設定してください', true);
+  if (x.start === null || x.end === null) return toast(CS_MODE === 'match' && VD && VD.video.ko !== null ? '時間は「24:06」「45+2:10」の形で入力してください' : '時間は 12:34 の形で入力してください', true);
+  if (x.end <= x.start) return toast('終了は開始より後にしてください', true);
   if (!x.title.trim()) return toast('タイトルを入力してください', true);
   try {
     await call('api_addCase', x); toast('保存しました');
