@@ -266,7 +266,6 @@ function seek(sec, slot = 'main') {
   const p = PLAYERS[slot]; if (!p) return;
   if (p.yt && p.yt.seekTo) { p.yt.seekTo(sec, true); if (p.yt.playVideo) p.yt.playVideo(); }
   else if (p.el) p.el.innerHTML = `<iframe src="https://www.youtube.com/embed/${p.id}?autoplay=1&playsinline=1&start=${sec}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
-  if (slot === 'main' && $('#player-anchor') && window.innerWidth < 1100) $('#player-anchor').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function pausePlayer(slot = 'main') { const p = PLAYERS[slot]; if (p && p.yt && p.yt.pauseVideo) p.yt.pauseVideo(); }
 
@@ -861,8 +860,8 @@ ROUTES.video = async (arg) => {
   VD = await call('api_video', vid);
   const v = VD.video, m = VD.match;
   const crew = B.consts.OFFICIAL_ROLES.map((r) => VD.crew[r].name ? `<span class="tag">${r}　${h(VD.crew[r].name)}</span>` : '').join('');
-  setMain(`<div class="vlayout"><div>
-      <div id="player-anchor" class="player"><div id="yt-main"></div></div>${playerBar('main')}
+  setMain(`<div class="vlayout"><div class="vleft">
+      <div class="pstick"><div id="player-anchor" class="player"><div id="yt-main"></div></div>${playerBar('main')}</div>
       <div style="margin:12px 0"><div class="b" style="font-size:17px">${card(m)}</div><div class="small muted">${dl(m.date)} ${h(m.ko)}　${h(m.comp)} ${h(m.name)}／${h(m.venue)}／${h(v.team)}提供${v.by ? `（${h(v.by)}さんが登録）` : ''}${VD.canDelete ? `　<a href="#" onclick="vdDel();return false;">この映像を削除</a>` : ''}</div>
       ${VD.others.length ? `<div style="margin-top:6px">${VD.others.map((o) => `<button class="btn sm" onclick="go('video','${o.id}')">${h(o.team)}提供の映像に切り替え</button>`).join(' ')}</div>` : ''}
       <div style="margin-top:8px">${crew}</div></div>

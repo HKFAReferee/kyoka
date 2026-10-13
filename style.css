@@ -330,3 +330,14 @@ tr.click:hover td{background:var(--pale)}
 .pbar .rates button:first-child{border-left:none}
 .pbar .rates button.on{background:var(--blue);color:#fff;font-weight:700}
 @media (max-width:640px){.pbar>button{flex:1;padding:6px 4px}.pbar .rates{margin-left:0;width:100%}.pbar .rates button{flex:1}}
+/* 試合映像：映像と操作バーを画面の上に固定（スクロールしても消えない） */
+.pstick{position:sticky;top:65px;z-index:6;background:#fff;padding-top:2px}
+.pstick .pbar{margin:6px 0 10px}
+@media (max-width:899px){
+  .pstick{top:57px;margin:0 -16px;padding:0 16px;border-bottom:1px solid var(--line)}
+  .pstick .player{margin:0 -16px;width:auto;border-radius:0}
+  .pstick .pbar{gap:4px;margin:6px 0 8px}
+  .pstick .pbar button{min-height:38px;padding:4px 6px;font-size:13px}
+}
+@media (max-width:640px){.pstick .pbar .rates{width:auto;flex:1 1 100%}}
+@media (max-width:1100px){.vleft{display:contents}}
