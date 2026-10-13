@@ -1119,16 +1119,27 @@ function catOptions(target) {
 function tMode() { return aligned() ? 'match' : tlTotal() !== null || TL.parts.length === 1 ? 'all' : 'part'; }
 function fmtIn(id, local) { const t = toT(id, local); const m = tMode(); return m === 'match' && t !== null ? tToMatch(t) : m !== 'part' && t !== null ? fmtSec(t) : fmtSec(local); }
 // 入力 → {id, local}。エラーは文字列で返す
-function parseIn(str) {
+/* 前半・後半を選んで入れた時間を、試合の時間の形にそろえる
+   前半：「24:06」、45分を過ぎたら「45+2:10」。後半：「10:00」（後半10分）でも「55:00」でも、「90+1:05」でもよい */
+function halfTime(str, half) {
+  const m = String(str || '').trim().replace(/[：]/g, ':').replace(/[＋]/g, '+').match(/^(\d+)(?:\+(\d+))?:(\d{1,2})$/);
+  if (!m || !half) return str;
+  let base = Number(m[1]); const plus = m[2] !== undefined, ss = m[3].padStart(2, '0');
+  if (half === '後半' && !plus && base < 45) base += 45;
+  if (half === '前半' && !plus && base >= 45) return '45+' + (base - 45) + ':' + ss;
+  if (half === '後半' && !plus && base >= 90) return '90+' + (base - 90) + ':' + ss;
+  return plus ? base + '+' + m[2] + ':' + ss : base + ':' + ss;
+}
+function parseIn(str, half) {
   const m = tMode();
   let t;
-  if (m === 'match') { t = matchToVideo(str, tlMarks()); if (t === undefined) return '後半の時間です。先に「後半開始」の位置を設定してください'; if (t === null) return '時間は「24:06」「45+2:10」の形で入力してください'; }
+  if (m === 'match') { t = matchToVideo(halfTime(str, half), tlMarks()); if (t === undefined) return '後半の時間です。先に「後半開始」の位置を設定してください'; if (t === null) return '時間は「24:06」「45+2:10」の形で入力してください'; }
   else { t = parseSec(str); if (t === null) return '時間は 12:34 の形で入力してください'; if (m === 'part') return { id: TL.parts[TL.cur].id, local: t }; }
   if (t < 0) return 'この映像には入っていない時間です';
   const p = fromT(t); return { id: p.id, local: Math.round(p.local) };
 }
 function inLabel() { const m = tMode(); return m === 'match' ? '（試合の時間）' : m === 'all' ? '（映像の時間）' : `（${h(TL.parts[TL.cur].part)}の時間）`; }
-function inHint(str) { const r = parseIn(str); return typeof r === 'string' ? `<span class="red">${r}</span>` : tMode() === 'match' ? `映像では ${TL.parts.length > 1 ? h(TL.parts[tlIdx(r.id)].part) + ' ' : ''}${fmtSec(r.local)}` : ''; }
+function inHint(str, half) { const r = parseIn(str, half); return typeof r === 'string' ? `<span class="red">${r}</span>` : tMode() === 'match' ? `${half ? '試合 ' + h(halfTime(str, half)) + '　→　' : ''}映像では ${TL.parts.length > 1 ? h(TL.parts[tlIdx(r.id)].part) + ' ' : ''}${fmtSec(r.local)}` : ''; }
 
 let CMF = { target: '主審', eval: '' };
 function cmOpen() {
@@ -1179,12 +1190,19 @@ function renderCaseArea() {
   $('#case-area').innerHTML = `<div class="card" style="padding:0"><div class="row" style="padding:12px 16px;border-bottom:1px solid var(--line)"><h2 style="margin:0">この映像の事例</h2><span class="spacer"></span>${VD.canCase ? `<button class="btn sm" onclick="caseForm()">＋ 事例に登録</button>` : ''}</div>
     <div id="case-form"></div>${list || '<p class="muted small" style="padding:12px 16px;margin:0">登録された事例はありません。</p>'}</div>`;
 }
+let CS_HALF = '前半';
+// 事例の時間：試合の時間で、前半・後半ごとの表示（後半は 45:00 からの時計のまま）
+function halfOf(id, local) { const t = toT(id, local), mk = tlMarks(); return t !== null && mk.h2 !== null && t >= mk.h2 ? '後半' : '前半'; }
+function csHalf(hf) { CS_HALF = hf; $$('#cs-half button').forEach((b) => b.classList.toggle('on', b.dataset.h === hf)); csPreview(); }
 function caseFormHtml(x, withTimes) {
   const tags = B.consts.tags;
-  const timeField = (k, label, id, local) => `<div class="field"><label>${label} <span class="small muted">${inLabel()}</span></label><div class="row" style="flex-wrap:nowrap"><input id="cs-${k}" value="${fmtIn(id, local)}" class="num" oninput="csPreview()"><button class="btn sm ghost" onclick="const n=nowLocal();$('#cs-${k}').value=fmtIn(n.id,n.local);csPreview()">今の位置</button></div><div class="hint" id="cs-${k}-p"></div></div>`;
+  const al = withTimes && aligned();
+  if (al) CS_HALF = halfOf(x.videoId, x.start);
+  const timeField = (k, label, id, local) => `<div class="field"><label>${label} <span class="small muted">${al ? '（試合の時間）' : inLabel()}</span></label><div class="row" style="flex-wrap:nowrap"><input id="cs-${k}" value="${fmtIn(id, local)}" class="num" inputmode="numeric" oninput="csPreview()"><button class="btn sm ghost" onclick="const n=nowLocal();$('#cs-${k}').value=fmtIn(n.id,n.local);${al ? "csHalf(halfOf(n.id,n.local));" : ''}csPreview()">今の位置</button></div><div class="hint" id="cs-${k}-p"></div></div>`;
   return `<div style="padding:12px 16px;background:var(--pale);border-bottom:1px solid var(--line)">
-    ${withTimes ? `${aligned() ? '<p class="small muted" style="margin:0 0 8px">試合の時間（「24:06」「45+2:10」「67:30」の形）で入力します。キックオフ・後半開始の位置をもとに映像の場面に直します。</p>'
-      : '<p class="small muted" style="margin:0 0 8px">映像の時間で入力します。右上の「キックオフ」の位置を設定すると、試合の時間（例：24:06）で入力できます。</p>'}
+    ${withTimes ? `${al ? `<div class="field"><label>前半・後半</label><div class="seg sm" id="cs-half" style="max-width:260px">${['前半', '後半'].map((hf) => `<button type="button" data-h="${hf}" class="${CS_HALF === hf ? 'on' : ''}" onclick="csHalf('${hf}')">${hf}</button>`).join('')}</div>
+      <div class="hint">実際の試合の時間を入れると、その場面を映像から抜き出します。前半は「24:06」（45分を過ぎたら「45+2:10」）、後半は「10:00」（後半10分）でも「55:00」でもかまいません。</div></div>`
+      : '<p class="small muted" style="margin:0 0 8px">映像の時間で入力します。右上の「キックオフ」「後半開始」の位置を設定すると、前半・後半を選んで実際の試合の時間で入力できます。</p>'}
     <div class="grid2">${timeField('s', '開始', x.videoId, x.start)}${timeField('e', '終了', x.videoId, x.end)}</div>` : ''}
     <div class="field"><label>タイトル</label><input id="cs-title" value="${h(x.title || '')}" placeholder="例：PA内での接触、PKの判断"></div>
     <div class="field"><label>テーマ（複数可）</label><div id="cs-tags">${tags.map((t) => `<button type="button" class="chip ${(x.tags || []).includes(t) ? 'on' : ''}" onclick="this.classList.toggle('on')">${h(t)}</button>`).join('')}</div></div>
@@ -1194,7 +1212,7 @@ function caseFormHtml(x, withTimes) {
     <p class="small muted">事例ライブラリでは、担当審判員の名前は表示されません。</p>
     <div class="row"><span class="spacer"></span><button class="btn sm" onclick="this.closest('#case-form').innerHTML='';renderCaseArea()">やめる</button><button class="btn primary sm" onclick="caseSave('${x.id || ''}','${x.videoId || ''}',${withTimes ? 'null' : x.start},${withTimes ? 'null' : x.end})">保存</button></div></div>`;
 }
-function csPreview() { ['s', 'e'].forEach((k) => { const el = $('#cs-' + k + '-p'); if (el) el.innerHTML = inHint($('#cs-' + k).value); }); }
+function csPreview() { const hf = $('#cs-half') ? CS_HALF : ''; ['s', 'e'].forEach((k) => { const el = $('#cs-' + k + '-p'); if (el) el.innerHTML = inHint($('#cs-' + k).value, hf); }); }
 function caseForm() { pausePlayer(); const n = nowLocal(); $('#case-form').innerHTML = caseFormHtml({ videoId: n.id, start: Math.max(0, n.local - 10), end: n.local + 10 }, true); csPreview(); $('#case-form').scrollIntoView({ block: 'nearest' }); }
 function caseEdit(id) { const c = VD.cases.find((x) => x.id === id); $('#case-form').innerHTML = caseFormHtml(c, true); csPreview(); $('#case-form').scrollIntoView({ block: 'nearest' }); }
 async function caseDelHere(id) {
@@ -1206,7 +1224,8 @@ async function caseSave(id, videoId, start, end) {
     tags: $$('#cs-tags .chip.on').map((b) => b.textContent) };
   if (start !== null) { x.start = start; x.end = end; }
   else {
-    const s0 = parseIn($('#cs-s').value), e0 = parseIn($('#cs-e').value);
+    const hf = $('#cs-half') ? CS_HALF : '';
+    const s0 = parseIn($('#cs-s').value, hf), e0 = parseIn($('#cs-e').value, hf);
     if (typeof s0 === 'string') return toast(s0, true);
     if (typeof e0 === 'string') return toast(e0, true);
     // 事例は開始の映像にまとめる（終了がつぎの映像にかかっても、開始の映像の秒で持つ）
