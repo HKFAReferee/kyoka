@@ -1227,7 +1227,7 @@ ROUTES.c_master = async (name) => {
   if (name === '会場') MS.assocs = (await call('api_master', '地区協会')).rows.map((r) => r['協会名']);
   renderMaster();
 };
-function msCols() { return MS.headers.filter((k) => k !== 'トークン' && k !== 'ID' && !(MS.name === '設定' && k === '説明')); }
+function msCols() { return MS.headers.filter((k) => k !== 'トークン' && k !== '個人ページURL' && k !== 'ID' && !(MS.name === '設定' && k === '説明')); }
 function renderMaster() {
   const name = MS.name;
   const tabs = `<div style="margin-bottom:8px">${MASTER_TABS.map((t) => `<button class="chip ${t === name ? 'on' : ''}" onclick="go('c_master','${t}')">${t}</button>`).join('')}</div>`;
