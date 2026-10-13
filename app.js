@@ -22,16 +22,64 @@ async function call(fn, ...args) {
   } catch (e) {
     throw new Error('サーバーに接続できませんでした。通信状態を確認してください。');
   }
+  if (!READS.test(fn) && fn !== 'api_boot' && fn !== 'api_video' && fn !== 'api_reportGet') { MEMO.clear(); WGEN++; GEN++; }
   const j = await res.json().catch(() => ({ ok: false, error: 'サーバーの応答を読み取れませんでした。' }));
   if (!j.ok) throw new Error(j.error || 'エラーが発生しました。');
   return j.result;
+}
+/* 読み込んだデータを覚えておき、次に開くときはすぐ表示する（裏で最新を取り直し、変わっていれば描き直す）。
+   書き込みの API を呼んだら覚えたものは捨てる。 */
+const READS = /^api_(home|survey|assignTable|myReports|myReport|fitness|fitnessResults|myAssessments|months|matches|surveyStatus|assignBoard|dispatch|reports|karte|master|videos|cases|videoMatches|teamHome)$/;
+const MEMO = new Map();      // キー → { s: JSON文字列, at: 取得時刻 }
+let GEN = 0;                 // ページを移るたび・書き込むたびに進める（古い描き直しを捨てるため）
+let WGEN = 0;                // 書き込むたびに進める（書き込み前に取りに行ったデータは覚えない）
+let FRESH = new Set();       // このページ表示中に取り直したキー
+let CUR_ARG;
+const memoKey = (fn, args) => fn + JSON.stringify(args);
+const PENDING = new Map();   // 読み込み中のキー → Promise（同じものを二重に取りに行かない）
+function fetchMemo(fn, args) {
+  const k = memoKey(fn, args);
+  if (PENDING.has(k)) return PENDING.get(k).then((s) => JSON.parse(s));
+  const wgen = WGEN;
+  const p = call(fn, ...args).then((r) => { const s = JSON.stringify(r); if (wgen === WGEN) MEMO.set(k, { s, at: Date.now() }); return s; });
+  PENDING.set(k, p);
+  p.finally(() => PENDING.delete(k)).catch(() => {});
+  return p.then((s) => JSON.parse(s));
+}
+async function get(fn, ...args) {
+  const k = memoKey(fn, args), m = MEMO.get(k);
+  if (!m) { FRESH.add(k); return fetchMemo(fn, args); }
+  if (!FRESH.has(k) && Date.now() - m.at > 20000) {
+    FRESH.add(k);
+    const gen = GEN, wgen = WGEN, page = CUR;
+    call(fn, ...args).then((r) => {
+      const s = JSON.stringify(r);
+      if (wgen !== WGEN) return;
+      MEMO.set(k, { s, at: Date.now() });
+      if (gen !== GEN) return;
+      MEMO.set(k, { s, at: Date.now() });
+      if (s === m.s || page !== CUR) return;
+      // 入力中・ダイアログ表示中・未保存の変更があるときは描き直さない
+      const busy = !$('#modal').hidden || (LEAVE && LEAVE.dirty && LEAVE.dirty()) || /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '');
+      if (busy) return;
+      const y = window.scrollY;
+      Promise.resolve(ROUTES[CUR](CUR_ARG)).then(() => window.scrollTo(0, y)).catch(() => {});
+    }).catch(() => {});
+  }
+  return JSON.parse(m.s);
+}
+/* 裏で先に読み込んでおく（失敗しても気にしない） */
+function prefetch(list) {
+  let p = Promise.resolve();
+  list.forEach(([fn, ...args]) => { p = p.then(() => (MEMO.has(memoKey(fn, args)) ? null : fetchMemo(fn, args).catch(() => {}))); });
 }
 function toast(msg, err) {
   const t = $('#toast'); t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
   clearTimeout(toast._t); toast._t = setTimeout(() => (t.className = 'toast'), err ? 6000 : 2500);
 }
 function fail(e) { toast((e && e.message) || String(e), true); }
-function setMain(html) { $('#main').innerHTML = html; }
+let MAIN_GEN = -1;           // 今のページの中身を描いた時点の GEN
+function setMain(html) { $('#main').innerHTML = html; MAIN_GEN = GEN; }
 function md(d) { return d ? Number(d.slice(5, 7)) + '/' + Number(d.slice(8, 10)) : ''; }
 function wd(d) { return d ? WD[new Date(d + 'T00:00:00').getDay()] : ''; }
 function dl(d) { return d ? md(d) + '(' + wd(d) + ')' : ''; }
@@ -173,11 +221,12 @@ function openMenu() {
 function go(page, arg) {
   if (LEAVE) { try { LEAVE(); } catch (e) {} LEAVE = null; }
   if (!ROUTES[page]) page = B.ctx.kind === 'team' ? 'team' : 'home';
-  CUR = page; renderNav(); destroyPlayer('main');
+  CUR = page; CUR_ARG = arg; GEN++; FRESH = new Set(); renderNav(); destroyPlayer('main');
   if (!$('#modal').hidden) closeModal();
   try { const q = new URLSearchParams({ t: TOKEN, p: page }); if (arg) q.set('a', arg); history.replaceState(null, '', '?' + q.toString()); } catch (e) {}
   head(PAGES[PARENT[page] || page] ? PAGES[PARENT[page] || page][0] : '', null, '');
-  setMain('<p class="loading">読み込み中…</p>');
+  const gen = GEN;
+  setTimeout(() => { if (gen === GEN && MAIN_GEN !== gen) { $('#main').innerHTML = '<p class="loading">読み込み中…</p>'; } }, 150);
   window.scrollTo(0, 0);
   Promise.resolve(ROUTES[page](arg)).catch((e) => { setMain(`<div class="card warn"><p class="red b">開けませんでした</p><p>${h((e && e.message) || e)}</p><button class="btn" onclick="go('${page}'${arg ? `,'${h(arg)}'` : ''})">もう一度読み込む</button></div>`); });
 }
@@ -270,7 +319,7 @@ function matchLi(m, right, onclick) {
 const NOTICE_LABEL = { survey: '回答する', fitness: '入力する', assess: '書く' };
 ROUTES.home = async () => {
   head('ホーム');
-  const r = await call('api_home');
+  const r = await get('api_home');
   BADGE = {}; r.notices.forEach((x) => (BADGE[x.page] = true));
   const c = B.ctx;
   let html = `<p class="muted" style="margin-bottom:4px">${h(c.name)} さん</p><p class="small muted" style="margin-bottom:20px">${[c.ref && '強化審判員', c.asr && 'アセッサー', c.com && '委員会'].filter(Boolean).join('・')}</p>`;
@@ -286,7 +335,18 @@ ROUTES.home = async () => {
   }
   setMain(html);
   renderNav();
+  prefetchTabs();
 };
+/* ホームを出したあと、よく使うページのデータを裏で読み込んでおく */
+function prefetchTabs() {
+  const c = B.ctx, nm = addMonth(B.today.slice(0, 7), 1), list = [];
+  if (c.com) list.push(['api_months'], ['api_assignBoard', nm], ['api_surveyStatus', nm], ['api_reports', B.today.slice(0, 7)], ['api_matches', nm]);
+  if (c.ref) list.push(['api_survey', ''], ['api_assignTable', ''], ['api_myReports']);
+  if (c.asr) list.push(['api_myAssessments']);
+  if (!c.com && !c.ref) list.push(['api_assignTable', '']);
+  list.push(['api_videos']);
+  prefetch(list);
+}
 function comMonthCard(m) {
   const isNext = m.ym !== B.today.slice(0, 7);
   if (!isNext && !m.matches) return '';
@@ -306,7 +366,7 @@ let SV = null;
 const ANS = [['○', '行ける', 'o'], ['△', '条件付き', 'tri'], ['×', '行けない', 'x']];
 ROUTES.survey = async (ym) => {
   head('稼働調査');
-  SV = await call('api_survey', ym || '');
+  SV = await get('api_survey', ym || '');
   if (!SV.month || !SV.matches.length) return setMain(empty('いま回答できる稼働調査はありません。<br>毎月10日に翌月の試合一覧が公開され、メールでお知らせします。'));
   head(ymLabel(SV.month) + 'の稼働調査');
   const left = daysLeft(SV.deadline);
@@ -360,7 +420,7 @@ function svSaveNow() { SV.dirty = true; svSave.flush(); }
 let TB = null, TB_MINE = false;
 ROUTES.table = async (ym) => {
   head('割当表');
-  TB = await call('api_assignTable', ym || '');
+  TB = await get('api_assignTable', ym || '');
   if (!TB.month) return setMain(empty('公開されている割当はまだありません'));
   head('割当表', null, monthNav('table', TB.month, TB.months));
   renderTable();
@@ -389,7 +449,7 @@ function annualStats(annual) {
 function scoreText(s) { return s === null || s === undefined ? '—' : Number(s).toFixed(1); }
 ROUTES.myreports = async () => {
   head('アセスメントレポート');
-  const r = await call('api_myReports');
+  const r = await get('api_myReports');
   if (!r.list.length) return setMain(empty('まだレポートはありません。<br>担当した試合のレポートが提出されると、メールでお知らせします。'));
   setMain(`${annualStats(r.annual)}<p class="small muted">年間評価は、その年に受けたレポートの評価点（例外の評価点があればそちら）の平均です。</p>
     <h2>受け取ったレポート</h2><div class="list">${r.list.map((m) => matchLi(m, `<div style="text-align:right"><div class="small muted">${h(m.role)}</div><div class="b blue num" style="font-size:18px">${scoreText(m.score)}</div></div>`, `go('myreport','${m.id}')`)).join('')}</div>`);
@@ -444,7 +504,7 @@ function videoBtns(videos) { return videos.length ? `<div class="row" style="mar
 
 ROUTES.myreport = async (matchId) => {
   head('アセスメントレポート', ['myreports']);
-  const r = await call('api_myReport', matchId);
+  const r = await get('api_myReport', matchId);
   const half = r.info.time ? Number(r.info.time) / 2 : 45;
   setMain(`<div class="card">${infoRO(r.match, r.info, r.assessor, r.date)}</div>${videoBtns(r.videos)}
     ${r.roles.map((role) => `<div class="card">${sectionRO(role, r.sections[role])}</div>`).join('')}
@@ -455,7 +515,7 @@ ROUTES.myreport = async (matchId) => {
 let FT = null;
 ROUTES.fitness = async (ym) => {
   head('体力テスト');
-  FT = await call('api_fitness');
+  FT = await get('api_fitness');
   const c = FT.current || { date: '', yoyo: '', d: ['', '', '', '', '', ''] };
   const left = daysLeft(FT.deadline);
   const hist = FT.history.map((x) => `<tr><td>${ymLabel(x.month)}</td><td class="num">${x.yoyo}</td><td class="num b">${fmt2(x.avg)}</td><td class="num">${fmt2(x.min)}</td><td class="num">${fmt2(x.max)}</td></tr>`).join('');
@@ -509,13 +569,13 @@ function rankTables(r, editable) {
     ${r.missing.length ? `<h3>未測定（${r.missing.length}名）</h3><div>${miss}</div>` : ''}`;
 }
 async function ftResults(ym) {
-  try { const r = await call('api_fitnessResults', ym); $('#ft-res').innerHTML = rankTables(r, false); } catch (e) { $('#ft-res').innerHTML = `<p class="alert">${h(e.message)}</p>`; }
+  try { const r = await get('api_fitnessResults', ym); $('#ft-res').innerHTML = rankTables(r, false); } catch (e) { $('#ft-res').innerHTML = `<p class="alert">${h(e.message)}</p>`; }
 }
 
 /* ───────── アセッサー：担当試合 ───────── */
 ROUTES.assess = async () => {
   head('担当試合（アセッサー）');
-  const list = await call('api_myAssessments');
+  const list = await get('api_myAssessments');
   if (!list.length) return setMain(empty('担当試合はありません'));
   const todo = list.filter((m) => m.status !== '提出済' && m.date <= B.today);
   const later = list.filter((m) => m.status !== '提出済' && m.date > B.today).reverse();
@@ -756,12 +816,38 @@ async function rpRevert() {
 /* ───────── みんな：試合映像 ───────── */
 let VL = [];
 ROUTES.videos = async () => {
-  head('試合映像');
-  VL = await call('api_videos');
-  if (!VL.length) return setMain(empty('映像はまだありません。<br>チームから提供されると、ここに並びます。'));
+  head('試合映像', null, B.ctx.kind === 'member' ? `<button class="btn sm primary" onclick="vdAdd()">＋ 映像を登録</button>` : '');
+  VL = await get('api_videos');
+  if (!VL.length) return setMain(empty('映像はまだありません。<br>チームから届いた映像や、受け取った映像を「＋ 映像を登録」から登録できます。'));
   setMain(`<div class="search"><input type="search" placeholder="大会名・チーム名でさがす" oninput="vlFilter(this.value)"></div><div id="vl"></div>`);
   vlFilter('');
 };
+/* メンバーが映像を登録する（チームから受け取った映像など） */
+let VM = [];
+async function vdAdd() {
+  openModal({ title: '映像を登録', body: '<p class="loading">試合を読み込み中…</p>', foot: `<button class="btn" onclick="closeModal()">やめる</button><button class="btn primary" id="vd-save" onclick="vdSave()" disabled>登録する</button>` });
+  try { VM = await get('api_videoMatches'); } catch (e) { closeModal(); return fail(e); }
+  if ($('#modal').hidden) return;
+  $('#modal .modal-body').innerHTML = VM.length ? `
+    <div class="field"><label>試合</label><select id="vd-m" onchange="vdTeams()">${VM.map((m) => `<option value="${m.id}">${dl(m.date)}　${h(m.a)} 対 ${h(m.b)}（${h(m.comp)} ${h(m.name)}）</option>`).join('')}</select><div class="hint">今日までの試合が新しい順に並んでいます</div></div>
+    <div class="field"><label>映像の出どころ</label><input id="vd-src" list="vd-teams" placeholder="例：北海FC（チームから受け取り）"><datalist id="vd-teams"></datalist><div class="hint">どこから届いた映像か（チーム名など）。映像の一覧に「○○提供」と表示されます</div></div>
+    <div class="field"><label>YouTube の URL</label><input id="vd-url" type="url" inputmode="url" placeholder="https://youtu.be/..."><div class="hint">YouTube に「限定公開」でアップロードした映像のURLを貼り付けてください</div></div>`
+    : empty('登録できる試合がありません（今日までの試合が対象です）');
+  if (VM.length) { $('#vd-save').disabled = false; vdTeams(); }
+}
+function vdTeams() { const m = VM.find((x) => x.id === $('#vd-m').value); $('#vd-teams').innerHTML = m ? [m.a, m.b].map((t) => `<option value="${h(t)}">`).join('') : ''; }
+async function vdSave() {
+  const url = $('#vd-url').value.trim(), src = $('#vd-src').value.trim();
+  if (!src) return toast('映像の出どころを入力してください', true);
+  if (!url) return toast('YouTube の URL を貼り付けてください', true);
+  $('#vd-save').disabled = true;
+  try { const r = await call('api_addVideo', $('#vd-m').value, src, url); toast('登録しました'); closeModal(); go('video', r.id); }
+  catch (e) { $('#vd-save').disabled = false; fail(e); }
+}
+async function vdDel() {
+  if (!confirm('この映像の登録を削除しますか？（ついているコメントも消えます）')) return;
+  try { await call('api_delVideo', VD.video.id); toast('削除しました'); go('videos'); } catch (e) { fail(e); }
+}
 function vlFilter(q) {
   const list = VL.filter((v) => !q || [v.match.comp, v.match.a, v.match.b, v.team, v.match.name].join(' ').includes(q))
     .sort((a, b) => String(b.match.date).localeCompare(String(a.match.date)));
@@ -777,7 +863,7 @@ ROUTES.video = async (arg) => {
   const crew = B.consts.OFFICIAL_ROLES.map((r) => VD.crew[r].name ? `<span class="tag">${r}　${h(VD.crew[r].name)}</span>` : '').join('');
   setMain(`<div class="vlayout"><div>
       <div id="player-anchor" class="player"><div id="yt-main"></div></div>${playerBar('main')}
-      <div style="margin:12px 0"><div class="b" style="font-size:17px">${card(m)}</div><div class="small muted">${dl(m.date)} ${h(m.ko)}　${h(m.comp)} ${h(m.name)}／${h(m.venue)}／${h(v.team)}提供</div>
+      <div style="margin:12px 0"><div class="b" style="font-size:17px">${card(m)}</div><div class="small muted">${dl(m.date)} ${h(m.ko)}　${h(m.comp)} ${h(m.name)}／${h(m.venue)}／${h(v.team)}提供${v.by ? `（${h(v.by)}さんが登録）` : ''}${VD.canDelete ? `　<a href="#" onclick="vdDel();return false;">この映像を削除</a>` : ''}</div>
       ${VD.others.length ? `<div style="margin-top:6px">${VD.others.map((o) => `<button class="btn sm" onclick="go('video','${o.id}')">${h(o.team)}提供の映像に切り替え</button>`).join(' ')}</div>` : ''}
       <div style="margin-top:8px">${crew}</div></div>
       <div id="marks"></div>
@@ -891,7 +977,7 @@ async function caseSave(id, videoId, start, end) {
 let CS = { list: [], tag: '', comp: '', q: '' };
 ROUTES.cases = async () => {
   head('事例ライブラリ');
-  CS.list = await call('api_cases');
+  CS.list = await get('api_cases');
   if (!CS.list.length) return setMain(empty('事例はまだありません。<br>委員会とアセッサーが試合映像の画面から登録できます。'));
   const comps = [...new Set(CS.list.map((c) => c.comp).filter(Boolean))];
   setMain(`<p class="lead">判断の難しい場面を集めた教材です。開くとその場面から再生されます。</p>
@@ -928,12 +1014,9 @@ async function csDel(id) {
 
 /* ───────── 委員会：共通 ───────── */
 let MONTHS = [];
-async function comMonth(ym) {
-  MONTHS = await call('api_months');
-  if (ym) return ym;
-  const nm = addMonth(B.today.slice(0, 7), 1);
-  return MONTHS.some((m) => m.ym === nm) ? nm : (MONTHS[0] || {}).ym || nm;
-}
+/* 委員会の月：指定がなければ来月。月の一覧（進み具合）はページのデータと同時に取る */
+function comMonth(ym) { return ym || addMonth(B.today.slice(0, 7), 1); }
+async function withMonths(p) { const [m, r] = await Promise.all([get('api_months'), p]); MONTHS = m; return r; }
 /* 月の流れ：①試合一覧 → ②稼働調査 → ③割当 → ④派遣依頼 */
 function flowSteps(ym, on) {
   const m = MONTHS.find((x) => x.ym === ym) || {};
@@ -950,8 +1033,8 @@ function flowSteps(ym, on) {
 let CM = null;
 ROUTES.c_matches = async (ym) => {
   head('試合一覧');
-  ym = await comMonth(ym);
-  CM = await call('api_matches', ym);
+  ym = comMonth(ym);
+  CM = await withMonths(get('api_matches', ym));
   head('試合一覧', null, monthNav('c_matches', ym));
   const byDate = {};
   CM.matches.forEach((m, i) => { (byDate[m.date] = byDate[m.date] || []).push([m, i]); });
@@ -1021,8 +1104,8 @@ async function cmPublish() {
 /* ───────── 委員会：稼働状況 ───────── */
 ROUTES.c_survey = async (ym) => {
   head('稼働状況');
-  ym = await comMonth(ym);
-  const r = await call('api_surveyStatus', ym);
+  ym = comMonth(ym);
+  const r = await withMonths(get('api_surveyStatus', ym));
   head('稼働状況', null, monthNav('c_survey', ym));
   if (!r.matches.length) return setMain(flowSteps(ym, 'c_survey') + empty('この月の試合はまだありません'));
   const cls = (a) => a === '○' ? 'a-o' : a === '△' ? 'a-t' : a === '×' ? 'a-x' : 'a-n';
@@ -1052,9 +1135,9 @@ ROUTES.c_survey = async (ym) => {
 let BD = null, BD_FILTER = '';
 ROUTES.c_assign = async (ym, keepScroll) => {
   head('割当');
-  ym = await comMonth(ym);
+  ym = comMonth(ym);
   const y = keepScroll ? window.scrollY : 0;
-  BD = await call('api_assignBoard', ym);
+  BD = await withMonths(get('api_assignBoard', ym));
   BD.dirty = {};
   head('割当', null, monthNav('c_assign', ym));
   renderBoard();
@@ -1158,8 +1241,8 @@ async function bdPublish() {
 /* ───────── 委員会：派遣依頼 ───────── */
 ROUTES.c_dispatch = async (ym) => {
   head('派遣依頼');
-  ym = await comMonth(ym);
-  const list = await call('api_dispatch', ym);
+  ym = comMonth(ym);
+  const list = await withMonths(get('api_dispatch', ym));
   window.DP = list;
   head('派遣依頼', null, monthNav('c_dispatch', ym));
   setMain(`${flowSteps(ym, 'c_dispatch')}
@@ -1183,7 +1266,7 @@ let CR_FILTER = '';
 ROUTES.c_reports = async (ym) => {
   head('アセスメントレポート');
   ym = ym || B.today.slice(0, 7);
-  const list = await call('api_reports', ym);
+  const list = await get('api_reports', ym);
   head('アセスメントレポート', null, monthNav('c_reports', ym));
   const n = (s) => list.filter((m) => m.status === s).length;
   const late = (m) => m.assessor && m.status !== '提出済' && m.date <= B.today;
@@ -1199,10 +1282,9 @@ ROUTES.c_report = (id) => ROUTES.report(id);
 /* ───────── 委員会：体力テスト結果 ───────── */
 ROUTES.c_fitness = async (ym) => {
   head('体力テスト結果');
-  const ft = await call('api_fitness');
+  ym = ym || B.today.slice(0, 7);
+  const [ft, r] = await Promise.all([get('api_fitness'), get('api_fitnessResults', ym)]);
   const months = [...new Set([B.today.slice(0, 7), ...ft.months])].sort().reverse();
-  ym = ym || months[0];
-  const r = await call('api_fitnessResults', ym);
   head('体力テスト結果', null, monthNav('c_fitness', ym, months));
   setMain(`<div class="card ${ym === B.today.slice(0, 7) ? 'warn' : 'pale'} small">${ym === B.today.slice(0, 7) ? '<b>今月分は入力期間中です。</b>審判員への公開は翌月1日です。' : '審判員にも公開されています。'}「修正」や未測定の名前から、委員会が記録を入力・修正できます。</div>
     ${rankTables(r, true)}`);
@@ -1218,7 +1300,7 @@ function cfEdit(memberId, month) {
 /* ───────── 委員会：審判員カルテ ───────── */
 ROUTES.c_karte = async (id) => {
   head('審判員カルテ');
-  const r = await call('api_karte', id || '');
+  const r = await get('api_karte', id || '');
   if (!r.member) {
     window.KR = r.refs;
     setMain(`<div class="search"><input type="search" placeholder="名前でさがす" oninput="krFilter(this.value)"></div><div id="kr"></div>`);
@@ -1251,8 +1333,8 @@ ROUTES.c_master = async (name) => {
   head('マスタ');
   name = name || 'メンバー';
   if (MS && MS.name !== name) { MS_Q = ''; MS_F = ''; }
-  MS = await call('api_master', name);
-  if (name === '会場') MS.assocs = (await call('api_master', '地区協会')).rows.map((r) => r['協会名']);
+  MS = await get('api_master', name);
+  if (name === '会場') MS.assocs = (await get('api_master', '地区協会')).rows.map((r) => r['協会名']);
   renderMaster();
 };
 function msCols() { return MS.headers.filter((k) => k !== 'トークン' && k !== '個人ページURL' && k !== 'ID' && !(MS.name === '設定' && k === '説明')); }
@@ -1332,7 +1414,7 @@ async function msSave() {
 
 /* ───────── チーム：映像提供 ───────── */
 let TM = null;
-ROUTES.team = async () => { head('試合映像の提供'); TM = await call('api_teamHome'); renderTeam(); };
+ROUTES.team = async () => { head('試合映像の提供'); TM = await get('api_teamHome'); renderTeam(); };
 function renderTeam() {
   head(TM.team + '　試合映像の提供');
   const todo = TM.matches.filter((m) => !m.video).length;
@@ -1356,6 +1438,8 @@ async function tmDel(id) {
 /* ───────── 起動 ───────── */
 (async function init() {
   try {
+    // 最初の画面がホームなら、起動情報とホームのデータを同時に取りに行く
+    if (!START_PAGE || START_PAGE === 'home') fetchMemo('api_home', []).catch(() => {});
     B = await call('api_boot');
     let page = START_PAGE, arg = START_ARG;
     if (page === 'c_report') page = 'report';
