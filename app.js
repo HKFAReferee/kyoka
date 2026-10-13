@@ -1389,7 +1389,7 @@ const MASTER_HELP = {
   'メンバー': '強化審判員・アセッサー・委員会のメンバーです。1人が複数の役割を持てます。保存すると個人ページのURLが自動で発行されます。退会した人は削除せず「在籍」を外してください。',
   '会場': '会場ごとに、所在地の地区協会を登録します。派遣依頼の宛先になります。',
   '地区協会': '派遣依頼の宛先です。',
-  'チーム': '映像を提供してくれるチームです。保存するとチーム専用の映像提供ページURLが発行されます。チーム名は試合一覧のチーム名と同じにしてください。',
+  'チーム': '試合に出るチームです。ここに登録した名前は、試合一覧でチーム名を入れるときの候補になります。保存するとチーム専用の映像提供ページURLが発行されます。',
   '設定': 'PAGE_URL は、この画面（GitHub Pages）のURLです。メールに載せる個人ページURLの元になります。',
 };
 ROUTES.c_master = async (name) => {
@@ -1400,7 +1400,45 @@ ROUTES.c_master = async (name) => {
   if (name === '会場') MS.assocs = (await get('api_master', '地区協会')).rows.map((r) => r['協会名']);
   renderMaster();
 };
-function msCols() { return MS.headers.filter((k) => k !== 'トークン' && k !== '個人ページURL' && k !== 'ID' && !(MS.name === '設定' && k === '説明')); }
+function msCols() {
+  const cols = MS.headers.filter((k) => k !== 'トークン' && k !== '個人ページURL' && k !== 'ID' && !(MS.name === '設定' && k === '説明'));
+  // チームは「所属リーグ」をチーム名のすぐ後ろに出す
+  if (cols.includes('所属リーグ')) { cols.splice(cols.indexOf('所属リーグ'), 1); cols.splice(1, 0, '所属リーグ'); }
+  return cols;
+}
+/* まとめて追加：Excel などから1行1件で貼り付ける（列はタブ区切り。同じ名前がすでにあれば飛ばす） */
+function bulkCols() { return MS.name === 'チーム' ? ['チーム名', '所属リーグ'] : msCols().filter((k) => !MS.bools.includes(k)); }
+function msBulk() {
+  const cols = bulkCols();
+  openModal({ title: MS.name + 'をまとめて追加', wide: true, body: `
+    <p class="small">1行に1件ずつ貼り付けてください。Excel から列ごとコピーすると、次の順に読み取ります。2列目以降は空でもかまいません。</p>
+    <div class="tbl"><table><thead><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr></thead></table></div>
+    <textarea id="mb-text" style="min-height:240px" placeholder="${MS.name === 'チーム' ? '例）札幌大学　北海道学生サッカーリーグ1部' : ''}" oninput="msBulkPrev()"></textarea>
+    <div id="mb-prev" class="small muted" style="margin-top:6px"></div>
+    ${MS.name === 'メンバー' ? '<p class="small muted">メンバーは「審判員」「在籍」にチェックが入った状態で追加されます。アセッサー・委員会は追加後に1人ずつ設定してください。</p>' : ''}`,
+    foot: `<button class="btn" onclick="closeModal()">やめる</button><button class="btn primary" onclick="msBulkSave()">追加する</button>` });
+}
+function msBulkRows() {
+  const cols = bulkCols(), key = cols[0];
+  const have = new Set(MS.rows.map((r) => String(r[key] || '').trim()));
+  const seen = new Set(), add = [], dup = [];
+  $('#mb-text').value.split(/\r?\n/).forEach((line) => {
+    const c = line.split('\t').map((x) => x.trim());
+    if (!c[0]) return;
+    if (have.has(c[0]) || seen.has(c[0])) { dup.push(c[0]); return; }
+    seen.add(c[0]);
+    const o = {}; MS.headers.forEach((k) => (o[k] = MS.bools.includes(k) ? (k === '在籍' || k === '審判員') : ''));
+    cols.forEach((k, i) => (o[k] = c[i] || ''));
+    add.push(o);
+  });
+  return { add, dup };
+}
+function msBulkPrev() { const { add, dup } = msBulkRows(); $('#mb-prev').innerHTML = `追加 ${add.length}件${dup.length ? `　<span class="red">すでにある・重複のため飛ばす ${dup.length}件（${dup.slice(0, 5).map(h).join('、')}${dup.length > 5 ? '…' : ''}）</span>` : ''}`; }
+async function msBulkSave() {
+  const { add } = msBulkRows();
+  if (!add.length) return toast('追加するものがありません', true);
+  try { MS = Object.assign(await call('api_saveMaster', MS.name, MS.rows.concat(add)), { assocs: MS.assocs }); closeModal(); renderMaster(); toast(add.length + '件追加しました'); } catch (e) { fail(e); }
+}
 function renderMaster() {
   const name = MS.name;
   const tabs = `<div style="margin-bottom:8px">${MASTER_TABS.map((t) => `<button class="chip ${t === name ? 'on' : ''}" onclick="go('c_master','${t}')">${t}</button>`).join('')}</div>`;
@@ -1415,7 +1453,7 @@ function renderMaster() {
   const active = (r) => r['在籍'] === true || r['在籍'] === 'TRUE';
   const cnt = (f) => MS.rows.filter((r) => f === '退会' ? !active(r) : active(r) && (r[f] === true || r[f] === 'TRUE')).length;
   setMain(`${tabs}<p class="lead">${MASTER_HELP[name]}</p>
-    <div class="row" style="margin-bottom:8px"><div class="search" style="flex:1;min-width:200px;margin:0"><input type="search" placeholder="さがす" value="${h(MS_Q)}" oninput="MS_Q=this.value;msList()"></div>${Object.keys(MS.urls).length ? '<button class="btn" id="ms-copyall" onclick="msCopyAll()">URLをまとめてコピー</button>' : ''}<button class="btn primary" onclick="msEdit(-1)">＋ 追加</button></div>
+    <div class="row" style="margin-bottom:8px"><div class="search" style="flex:1;min-width:200px;margin:0"><input type="search" placeholder="さがす" value="${h(MS_Q)}" oninput="MS_Q=this.value;msList()"></div>${Object.keys(MS.urls).length ? '<button class="btn" id="ms-copyall" onclick="msCopyAll()">URLをまとめてコピー</button>' : ''}<button class="btn" onclick="msBulk()">まとめて追加</button><button class="btn primary" onclick="msEdit(-1)">＋ 追加</button></div>
     ${isM ? `<div style="margin-bottom:4px">${[['', 'すべて'], ['審判員', '審判員'], ['アセッサー', 'アセッサー'], ['委員会', '委員会'], ['退会', '退会']].map(([k, l]) => `<button class="chip ${MS_F === k ? 'on' : ''}" onclick="MS_F='${k}';renderMaster()">${l}${k ? ` ${cnt(k)}` : ''}</button>`).join('')}</div>` : ''}
     <div id="ms-list"></div>`);
   window.msList = () => {
