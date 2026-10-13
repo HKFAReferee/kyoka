@@ -1242,18 +1242,28 @@ function renderMaster() {
   const active = (r) => r['在籍'] === true || r['在籍'] === 'TRUE';
   const cnt = (f) => MS.rows.filter((r) => f === '退会' ? !active(r) : active(r) && (r[f] === true || r[f] === 'TRUE')).length;
   setMain(`${tabs}<p class="lead">${MASTER_HELP[name]}</p>
-    <div class="row" style="margin-bottom:8px"><div class="search" style="flex:1;min-width:200px;margin:0"><input type="search" placeholder="さがす" value="${h(MS_Q)}" oninput="MS_Q=this.value;msList()"></div><button class="btn primary" onclick="msEdit(-1)">＋ 追加</button></div>
+    <div class="row" style="margin-bottom:8px"><div class="search" style="flex:1;min-width:200px;margin:0"><input type="search" placeholder="さがす" value="${h(MS_Q)}" oninput="MS_Q=this.value;msList()"></div>${Object.keys(MS.urls).length ? '<button class="btn" id="ms-copyall" onclick="msCopyAll()">URLをまとめてコピー</button>' : ''}<button class="btn primary" onclick="msEdit(-1)">＋ 追加</button></div>
     ${isM ? `<div style="margin-bottom:4px">${[['', 'すべて'], ['審判員', '審判員'], ['アセッサー', 'アセッサー'], ['委員会', '委員会'], ['退会', '退会']].map(([k, l]) => `<button class="chip ${MS_F === k ? 'on' : ''}" onclick="MS_F='${k}';renderMaster()">${l}${k ? ` ${cnt(k)}` : ''}</button>`).join('')}</div>` : ''}
     <div id="ms-list"></div>`);
   window.msList = () => {
     const rs = MS.rows.map((r, i) => [r, i]).filter(([r]) => (!MS_Q || Object.values(r).join(' ').includes(MS_Q)) &&
       (!isM || !MS_F || (MS_F === '退会' ? !active(r) : active(r) && (r[MS_F] === true || r[MS_F] === 'TRUE'))));
+    // まとめてコピーの対象：表示中の行のうちURLがある人（退会者は「退会」で絞ったときだけ）
+    MS.shown = rs.filter(([r, i]) => MS.urls[i] && (!isM || MS_F === '退会' || active(r))).map(([, i]) => i);
+    if ($('#ms-copyall')) $('#ms-copyall').textContent = `URLをまとめてコピー（${MS.shown.length}${isM ? '人' : '件'}）`;
     $('#ms-list').innerHTML = rs.length ? `<div class="list">${rs.map(([r, i]) => `<a href="#" class="li ${isM && !active(r) ? '' : ''}" onclick="msEdit(${i});return false;">
       <div class="main"><div class="t">${h(r[first]) || '<span class="muted">（名前なし）</span>'}${isM && !active(r) ? ' <span class="pill">退会</span>' : ''}</div>
       <div class="s">${msCols().slice(1).filter((k) => !MS.bools.includes(k) && r[k]).map((k) => h(r[k])).join('　')}</div>${isM ? `<div style="margin-top:2px">${roleP(r)}</div>` : ''}</div>
       ${MS.urls[i] ? `<button class="btn sm" onclick="event.preventDefault();event.stopPropagation();copyText(MS.urls[${i}])">URLをコピー</button>` : ''}<span class="chev">›</span></a>`).join('')}</div>` : empty('登録がありません');
   };
   msList();
+}
+// 「氏名・メール・URL」をタブ区切りでコピー（Excel やメールにそのまま貼れる）
+function msCopyAll() {
+  const first = msCols()[0];
+  const lines = (MS.shown || []).map((i) => [MS.rows[i][first], MS.rows[i]['メール'] || '', MS.urls[i]].join('\t'));
+  if (!lines.length) return toast('コピーできるURLがありません', true);
+  copyText(lines.join('\n'));
 }
 function msEdit(i) {
   const isNew = i < 0;
