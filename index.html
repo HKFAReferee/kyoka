@@ -10,7 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css">
+  <!-- 更新したらすぐ反映されるよう、毎回最新のファイルを読む（ブラウザの古い控えを使わない） -->
+  <script>var V = Date.now(); document.write('<link rel="stylesheet" href="style.css?v=' + V + '">');</script>
 </head>
 <body>
   <aside class="side" id="side"></aside>
@@ -26,7 +27,6 @@
   <nav class="tabbar" id="tabbar"></nav>
   <div id="toast" class="toast" role="status"></div>
   <div id="modal" class="modal" hidden></div>
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+  <script>document.write('<script src="config.js?v=' + V + '"><\/script><script src="app.js?v=' + V + '"><\/script>');</script>
 </body>
 </html>
