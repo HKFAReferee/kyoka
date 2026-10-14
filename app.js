@@ -299,10 +299,30 @@ function playerFull() {
   if (fsEl) return (document.exitFullscreen || document.webkitExitFullscreen).call(document);
   if (document.body.classList.contains('pfull')) { document.body.classList.remove('pfull'); return fsLabel(); }
   const req = el.requestFullscreen || el.webkitRequestFullscreen;
-  if (req && document.fullscreenEnabled !== false) { try { const r = req.call(el); if (r && r.catch) r.catch(() => document.body.classList.add('pfull')); return; } catch (e) {} }
-  document.body.classList.add('pfull'); fsLabel();
+  const fallback = () => { document.body.classList.add('pfull'); fsLabel(); };
+  // スマホは全画面にしたら横向きに固定（できる端末だけ）
+  const land = () => { try { screen.orientation.lock('landscape').catch(() => {}); } catch (e) {} };
+  if (req && document.fullscreenEnabled !== false) { try { const r = req.call(el); if (r && r.then) r.then(land, fallback); else land(); return; } catch (e) {} }
+  fallback();
 }
-function fsLabel() { const b = $('.fsbtn'); if (b) b.textContent = document.fullscreenElement || document.webkitFullscreenElement || document.body.classList.contains('pfull') ? '✕ 元に戻す' : '⛶ 全画面'; }
+function fsOn() { return !!(document.fullscreenElement || document.webkitFullscreenElement || document.body.classList.contains('pfull')); }
+function fsLabel() {
+  const b = $('.fsbtn'), el = $('.pstick'), on = fsOn();
+  if (b) b.textContent = on ? '✕ 元に戻す' : '⛶ 全画面';
+  if (el) { el.classList.toggle('fs', on); if (on) pokeCtl(); else el.classList.remove('idle'); }
+}
+// 全画面では操作を映像の上に重ね、再生中に3秒さわらなければ消す（タップかマウスを動かすと出る）
+let CTL_T;
+function pokeCtl() {
+  const el = $('.pstick.fs'); if (!el) return;
+  el.classList.remove('idle'); clearTimeout(CTL_T);
+  CTL_T = setTimeout(() => { const y = ytOf('main'); if (y && y.getPlayerState() === 1 && el.isConnected) el.classList.add('idle'); }, 3000);
+}
+function tapCtl() {
+  const el = $('.pstick.fs'); if (!el) return;
+  const y = ytOf('main');
+  if (!el.classList.contains('idle') && y && y.getPlayerState() === 1) { clearTimeout(CTL_T); el.classList.add('idle'); } else pokeCtl();
+}
 document.addEventListener('fullscreenchange', fsLabel); document.addEventListener('webkitfullscreenchange', fsLabel);
 function ytOf(slot) { const p = PLAYERS[slot]; return p && p.yt && p.yt.seekTo ? p.yt : null; }
 function skip(sec, slot = 'main') {
@@ -972,7 +992,8 @@ function seekPart(id, local) {
 function seekT(t) { const p = fromT(t); seekPart(p.id, p.local); }
 function tlOnState(st) {
   const y = ytOf('main'); if (!y || !TL) return;
-  if (st === 1) {   // 再生が始まった：速度を戻し、長さが分からなければ記録
+  if (st === 1) {   // 再生が始まった：速度を戻し、長さが分からなければ記録（全画面なら操作を消すタイマーを始める）
+    if (!$(".pstick.fs.idle")) pokeCtl();
     if (TL.rate !== 1) y.setPlaybackRate(TL.rate);
     const p = TL.parts[TL.cur], d = Math.round(y.getDuration() || 0);
     const vid = y.getVideoData ? (y.getVideoData() || {}).video_id : p.yt;   // 別の動画が流れているときは記録しない
@@ -1065,7 +1086,7 @@ ROUTES.video = async (arg) => {
   const parts = VD.parts && VD.parts.length ? VD.parts : [v];
   const crew = B.consts.OFFICIAL_ROLES.map((r) => VD.crew[r].name ? `<span class="tag">${r}　${h(VD.crew[r].name)}</span>` : '').join('');
   setMain(`<div class="vlayout"><div class="vleft">
-      <div class="pstick"><div id="player-anchor" class="player"><div id="yt-main"></div></div>${tlBarHtml()}${playerBar('main')}</div>
+      <div class="pstick"><div id="player-anchor" class="player"><div id="yt-main"></div><div class="ptap" onclick="tapCtl()" onpointermove="if(event.pointerType==='mouse')pokeCtl()"></div></div><div class="pctl" onpointerdown="pokeCtl()">${tlBarHtml()}${playerBar('main')}</div></div>
       <div style="margin:12px 0"><div class="b" style="font-size:17px">${card(m)}</div><div class="small muted">${dl(m.date)} ${h(m.ko)}　${h(m.comp)} ${h(m.name)}／${h(m.venue)}／${h(v.team)}提供${v.by ? `（${h(v.by)}さんが登録）` : ''}</div>
       <div id="parts" style="margin-top:6px"></div>
       ${VD.others.length ? `<div style="margin-top:6px">${VD.others.map((o) => `<button class="btn sm" onclick="go('video','${o.id}')">${h(o.team)}提供の映像に切り替え</button>`).join(' ')}</div>` : ''}
