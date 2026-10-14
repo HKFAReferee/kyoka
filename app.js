@@ -230,7 +230,7 @@ function go(page, arg) {
   if (LEAVE) { try { LEAVE(); } catch (e) {} LEAVE = null; }
   if (!ROUTES[page]) page = B.ctx.kind === 'team' ? 'team' : 'home';
   CUR = page; CUR_ARG = arg; GEN++; FRESH = new Set(); renderNav(); destroyPlayer('main'); clearInterval(TL_TIMER); TL = null;
-  document.body.classList.toggle('wide', page === 'video');   // 映像のページは画面の横幅いっぱいを使う
+  document.body.classList.toggle('wide', page === 'video'); document.body.classList.remove('pfull');   // 映像のページは画面の横幅いっぱいを使う
   if (!$('#modal').hidden) closeModal();
   try { const q = new URLSearchParams({ t: TOKEN, p: page }); if (arg) q.set('a', arg); history.replaceState(null, '', '?' + q.toString()); } catch (e) {}
   head(PAGES[PARENT[page] || page] ? PAGES[PARENT[page] || page][0] : '', null, '');
@@ -260,7 +260,9 @@ async function mountPlayer(slot, elId, yt, opt = {}) {
   const el = document.getElementById(elId);
   if (!el) return;
   if (window.YT && window.YT.Player) {
-    const pv = { playsinline: 1, rel: 0, modestbranding: 1 };
+    const pv = { playsinline: 1, rel: 0, modestbranding: 1, iv_load_policy: 3 };
+    // 試合映像のページは自前の操作バーを使うので、YouTube の操作バーは出さない
+    if (opt.noControls) Object.assign(pv, { controls: 0, disablekb: 1, fs: 0 });
     if (opt.start) pv.start = opt.start;
     if (opt.end) pv.end = opt.end;
     PLAYERS[slot] = { yt: new YT.Player(elId, { videoId: yt, playerVars: pv, events: { onStateChange: (e) => opt.onState && opt.onState(e.data) } }), id: yt };
@@ -287,8 +289,21 @@ function playerBar(slot) {
     <button onclick="skip(-10,'${slot}')" aria-label="10秒戻る">« 10秒</button>
     <button class="play" onclick="togglePlay('${slot}')" aria-label="再生・一時停止">▶ ／ ❚❚</button>
     <button onclick="skip(10,'${slot}')" aria-label="10秒進む">10秒 »</button>
-    <span class="rates">${RATES.map((r) => `<button data-r="${r}" class="${r === 1 ? 'on' : ''}" onclick="setRate(${r},'${slot}')">${r === 1 ? '標準' : r === 0.5 ? 'スロー' : '超スロー'}</button>`).join('')}</span></div>`;
+    <span class="rates">${RATES.map((r) => `<button data-r="${r}" class="${r === 1 ? 'on' : ''}" onclick="setRate(${r},'${slot}')">${r === 1 ? '標準' : r === 0.5 ? 'スロー' : '超スロー'}</button>`).join('')}</span>
+    ${slot === 'main' ? `<button class="fsbtn" onclick="playerFull()" aria-label="全画面">⛶ 全画面</button>` : ''}</div>`;
 }
+/* 全画面：映像・全体のバー・操作バーごと。使えない端末（iPhone）では画面いっぱいに広げる */
+function playerFull() {
+  const el = $('.pstick'); if (!el) return;
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  if (fsEl) return (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  if (document.body.classList.contains('pfull')) { document.body.classList.remove('pfull'); return fsLabel(); }
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req && document.fullscreenEnabled !== false) { try { const r = req.call(el); if (r && r.catch) r.catch(() => document.body.classList.add('pfull')); return; } catch (e) {} }
+  document.body.classList.add('pfull'); fsLabel();
+}
+function fsLabel() { const b = $('.fsbtn'); if (b) b.textContent = document.fullscreenElement || document.webkitFullscreenElement || document.body.classList.contains('pfull') ? '✕ 元に戻す' : '⛶ 全画面'; }
+document.addEventListener('fullscreenchange', fsLabel); document.addEventListener('webkitfullscreenchange', fsLabel);
 function ytOf(slot) { const p = PLAYERS[slot]; return p && p.yt && p.yt.seekTo ? p.yt : null; }
 function skip(sec, slot = 'main') {
   const y = ytOf(slot); if (!y) return;
@@ -850,9 +865,14 @@ ROUTES.videos = async () => {
   head('試合映像', null, B.ctx.kind === 'member' ? `<button class="btn sm primary" onclick="vdAdd()">＋ 映像を登録</button>` : '');
   VL = await get('api_videos');
   if (!VL.length) return setMain(empty('映像はまだありません。<br>チームから届いた映像や、受け取った映像を「＋ 映像を登録」から登録できます。'));
-  setMain(`<div class="search"><input type="search" placeholder="大会名・チーム名でさがす" oninput="vlFilter(this.value)"></div><div id="vl"></div>`);
+  // 年ごとに分ける（試合日の年）。最初は映像のある一番新しい年
+  const years = [...new Set(VL.map((v) => String((v.match && v.match.date) || '').slice(0, 4)).filter(Boolean))].sort().reverse();
+  if (!years.includes(VY)) VY = years[0] || '';
+  setMain(`<div class="row" style="margin-bottom:12px;flex-wrap:nowrap"><select id="vl-y" onchange="VY=this.value;vlFilter($('#vl-q').value)" style="width:auto;flex:none;font-weight:700">${years.map((y) => `<option value="${y}" ${y === VY ? 'selected' : ''}>${y}年</option>`).join('')}<option value="" ${VY ? '' : 'selected'}>すべての年</option></select>
+    <div class="search" style="flex:1;min-width:0;margin:0"><input id="vl-q" type="search" placeholder="大会名・チーム名でさがす" oninput="vlFilter(this.value)"></div></div><div id="vl"></div>`);
   vlFilter('');
 };
+let VY = '';
 /* メンバーが映像を登録する（チームから受け取った映像など） */
 let VM = [];
 async function vdAdd() {
@@ -894,7 +914,7 @@ function vlFilter(q) {
   const PARTS = B.consts.PARTS || [], sets = [];
   VL.forEach((v) => { let s = sets.find((x) => x.matchId === v.matchId && x.team === v.team); if (!s) sets.push((s = { matchId: v.matchId, team: v.team, match: v.match, parts: [], comments: 0 })); s.parts.push(v); s.comments += v.comments; });
   sets.forEach((s) => s.parts.sort((a, b) => PARTS.indexOf(a.part) - PARTS.indexOf(b.part)));
-  const list = sets.filter((s) => !q || [s.match.comp, s.match.a, s.match.b, s.team, s.match.name].join(' ').includes(q))
+  const list = sets.filter((s) => (!VY || String(s.match.date).startsWith(VY)) && (!q || [s.match.comp, s.match.a, s.match.b, s.team, s.match.name].join(' ').includes(q)))
     .sort((a, b) => String(b.match.date).localeCompare(String(a.match.date)));
   // 映像ごとのカード：YouTube のサムネイル＋日付・本数、下に対戦・大会・出どころ
   $('#vl').innerHTML = list.length ? `<div class="vgrid">${list.map((s) => { const m = s.match, p0 = s.parts[0];
@@ -1050,7 +1070,7 @@ ROUTES.video = async (arg) => {
     </div></div>`);
   TL = tlBuild(parts); TL.cur = Math.max(0, tlIdx(v.id));
   renderParts(); renderMarks(); renderComments(); renderCaseArea(); tlDraw(true);
-  await mountPlayer('main', 'yt-main', TL.parts[TL.cur].yt, { start: at ? Number(at) : 0, onState: tlOnState });
+  await mountPlayer('main', 'yt-main', TL.parts[TL.cur].yt, { start: at ? Number(at) : 0, onState: tlOnState, noControls: true });
   clearInterval(TL_TIMER); TL_TIMER = setInterval(() => tlDraw(), 500);
   tlProbe();
 };
