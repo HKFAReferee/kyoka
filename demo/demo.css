@@ -1,0 +1,10 @@
+/* 独立デモ：ページ上の帯（役割の切り替え・最初に戻す） */
+.demobar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#FFD400;color:#0B0B0C;padding:8px 24px;font-size:13px}
+.demo-tag{background:#0B0B0C;color:#FFD400;font-weight:700;border-radius:4px;padding:2px 8px}
+.demo-roles{display:inline-flex;border:1.5px solid #0B0B0C;border-radius:8px;overflow:hidden}
+.demo-roles button{background:transparent;border:none;border-left:1.5px solid #0B0B0C;padding:5px 12px;font:700 13px 'Noto Sans JP',sans-serif;color:#0B0B0C;cursor:pointer}
+.demo-roles button:first-child{border-left:none}
+.demo-roles button.on{background:#0B0B0C;color:#FFD400}
+.demo-note{flex:1;min-width:0;font-size:12px}
+.demo-reset{background:none;border:none;padding:4px 0;font:700 12px 'Noto Sans JP',sans-serif;color:#0B0B0C;text-decoration:underline;cursor:pointer}
+@media (max-width:899px){.demobar{padding:8px 16px;gap:8px}.demo-note{display:none}.demo-roles{flex:1}.demo-roles button{flex:1;padding:6px 4px}}

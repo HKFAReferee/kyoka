@@ -12,3 +12,4 @@ GitHub Pages（https://hkfareferee.github.io/kyoka/）で公開する画面。�
 - `style.css`：審判テーマ。黒（#0B0B0C／文字 #121212）を基調に、イエローカード #FFD400（主な操作・今いる場所）、レッドカード #D32F2F（注意・締切）。ページは薄いグレー #F4F4F5、カードは白。左メニュー・見出し・下タブは黒、試合映像のページは全体を暗く（`body.wide`）。Noto Sans JP、影・グラデなし
 - URL：`?t=トークン&p=ページ&a=引数`。トークンは個人用の合言葉なので、このリポジトリやログに書かない
 - ロール別メニュー：自分／アセッサー／みんな／委員会（`navGroups`）。チーム用 URL は映像提供ページだけ
+- `demo/`：独立して動くデモ（https://hkfareferee.github.io/kyoka/demo/）。サーバーの処理を見えない iframe（`gas.html`＋`backend.js`）で動かし、`demo.js` が `fetch` をそこへ回す。データはその端末の localStorage だけ。上の帯で委員会／審判員／アセッサーを切り替え、「最初に戻す」で作り直す。デモの「今日」は毎月5日に固定。`backend.js` は kyoka-system の `node tools/build-demo.js` で作る（直接編集しない。`src/` を変えたら作り直す）
