@@ -212,7 +212,7 @@ function navOn() { if (CUR === 'report') return B.ctx.asr && !B.ctx.com ? 'asses
 function renderNav() {
   const on = navOn();
   const dot = (k) => BADGE[k] ? `<span class="pill ng cnt">${BADGE[k] === true ? '!' : BADGE[k]}</span>` : '';
-  $('#side').innerHTML = `<div class="brand">北海道<br>強化審判員システム</div><div class="me">${h(B.ctx.name)}${B.ctx.kind === 'team' ? '' : ' さん'}</div>` +
+  $('#side').innerHTML = `<div class="brand"><svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><rect x="5" y="4" width="13" height="19" rx="2" fill="#FFD400" transform="rotate(-12 11 13)"/><rect x="12" y="6" width="13" height="19" rx="2" fill="#D32F2F" transform="rotate(10 18 15)"/></svg><span>北海道<br>強化審判員システム</span></div><div class="me">${h(B.ctx.name)}${B.ctx.kind === 'team' ? '' : ' さん'}</div>` +
     navGroups().map(([g, list]) => `<div class="navgrp">${g}</div>` + list.map((k) =>
       `<a href="#" class="navlink ${k === on ? 'on' : ''}" onclick="go('${k}');return false;">${icon(PAGES[k][1], 18)}<span>${PAGES[k][0]}</span>${dot(k)}</a>`).join('')).join('');
   if (B.ctx.kind === 'team') { $('#tabbar').innerHTML = ''; $('#tabbar').hidden = true; return; }

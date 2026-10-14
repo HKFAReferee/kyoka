@@ -1,5 +1,8 @@
 :root{
-  --blue:#1976D2; --accent:#D84315; --pale:#E8F4FB; --ink:#222222; --gray:#888888; --line:#E0E0E0; --bg:#FFFFFF;
+  /* 審判のカラー：黒を基調に、イエローカード（主な操作・今いる場所）とレッドカード（注意・締切） */
+  --ink:#121212; --black:#0B0B0C; --black2:#1C1C1F; --yellow:#FFD400; --yellow2:#F0C400; --red:#D32F2F;
+  --gray:#86868B; --line:#E4E4E7; --bg:#F4F4F5; --card:#FFFFFF;
+  --blue:var(--ink); --accent:var(--red); --pale:#FFF7CC;
   --side:232px; --bar:60px;
 }
 *{box-sizing:border-box}
@@ -367,3 +370,111 @@ body.navhide .actionbar{left:0}
 .tl-track #tl-pos{position:absolute;top:0;bottom:0;width:3px;background:var(--accent);left:0;pointer-events:none}
 .tl-mark{position:absolute;top:0;bottom:0;width:2px;background:var(--blue);pointer-events:none}
 .tl-info{display:flex;gap:8px;margin-top:2px;font-variant-numeric:tabular-nums}
+
+/* ───── 審判テーマ ───── */
+body{background:var(--bg)}
+a{color:var(--ink);text-decoration:underline;text-decoration-color:var(--yellow);text-decoration-thickness:2px;text-underline-offset:3px}
+a.btn,a.li,a.navlink,a.todo,a.stat,a.step,.tabbar a,a.chip{text-decoration:none}
+.blue{color:var(--ink);font-weight:700}
+.red{color:var(--red)}
+.btn{border-color:var(--ink);color:var(--ink);background:var(--card)}
+.btn:hover{background:#F0F0F1}
+.btn.primary{background:var(--yellow);border-color:var(--yellow);color:var(--black);font-weight:700}
+.btn.primary:hover{background:var(--yellow2);border-color:var(--yellow2)}
+.btn.primary:disabled{background:var(--yellow)}
+.btn.danger{border-color:var(--red);color:var(--red)}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.ghost:hover{background:#ECECEE}
+/* 左のメニュー・見出し・下のタブは黒 */
+.side{background:var(--black);border-right:none}
+.side .brand{color:#fff;display:flex;gap:10px;align-items:center}
+.side .me{color:#9A9A9E;border-bottom-color:#26262A}
+.navgrp{color:#6E6E73;letter-spacing:.05em}
+.navlink{color:#D8D8DC}
+.navlink:hover{background:var(--black2);color:#fff}
+.navlink.on{background:var(--black2);color:var(--yellow);border-left-color:var(--yellow)}
+.navlink .pill.ng{background:var(--red);border-color:var(--red);color:#fff}
+.head{background:var(--black);border-bottom:none}
+.head h1{color:#fff}
+.head .iconbtn{color:#fff}
+.head .iconbtn:hover{background:var(--black2)}
+.head .navtoggle{color:#B0B0B4}
+.head .monthnav{border-color:#3A3A3F;background:var(--black2)}
+.head .monthnav span{color:#fff}
+.head .monthnav button{color:var(--yellow)}
+.head .monthnav button:disabled{color:#4A4A4F}
+.head select{background-color:var(--black2);color:#fff;border-color:#3A3A3F}
+.head .pill{background:var(--black2)}
+.tabbar{background:var(--black);border-top:none}
+.tabbar a{color:#8E8E93}
+.tabbar a.on{color:var(--yellow)}
+.tabbar .dot{background:var(--red)}
+/* カード・一覧は白、ページは薄いグレー */
+.card,.list,.li,.mcard,.stat,.tbl,.empty{background:var(--card)}
+.card.pale{background:var(--pale);border-color:#F3E3A0}
+.card.blue,.card.blue{border-color:var(--ink)}
+.empty{border-color:#D4D4D8}
+a.li:hover,button.li:hover,.citem:hover,.slotbtn:hover,tr.click:hover td{background:#FFFBE6}
+.li.me,tr.me td{background:var(--pale)}
+/* 選んだ状態は黒、強調は黄色 */
+.chip.on,.seg button.on,.scoregrid button.on,.secnav button.on,.pill.solid{background:var(--ink);border-color:var(--ink);color:#fff}
+.seg button.on.tri{background:var(--yellow);color:var(--black)}
+.seg button.on.x{background:#55555A}
+.pill.ok{background:var(--ink);border-color:var(--ink);color:var(--yellow)}
+.pill.ng{border-color:var(--red);color:var(--red)}
+.bar{background:#E4E4E7}
+.bar i{background:var(--yellow)}
+.stat.blue{background:var(--black);border-color:var(--black)}
+.stat.blue .k,.stat.blue .small{color:#A0A0A5}
+.stat.blue .v,.stat.blue .v small{color:var(--yellow)}
+.bigscore{color:var(--ink)}
+.date{border-color:#D4D4D8}
+.date .m,.date .w{color:var(--gray)}
+.date.sun .d,.date.sun .w{color:var(--red)}
+.date.sat .w{color:var(--ink)}
+.todo{border-color:var(--red);border-left:6px solid var(--red)}
+.todo .ic{background:var(--red)}
+.todo.done{border-color:var(--line);border-left-color:var(--yellow)}
+.todo.done .ic{background:var(--yellow);color:var(--black)}
+.step.on{background:var(--black)}
+.step.on .l,.step.on .n{color:var(--yellow)}
+.step.on .st{color:#C8C8CC}
+.step.done .st{color:var(--ink);font-weight:700}
+.mcard.dirty{border-color:var(--yellow);border-width:2px}
+.cand.on{border-color:var(--ink);background:var(--pale)}
+.cand .ans.o{color:var(--ink);border-color:var(--ink)}
+.cand .ans.t{color:var(--black);background:var(--yellow);border-color:var(--yellow)}
+.matrix td.a-o{background:var(--ink);color:#fff}
+.matrix td.a-t{background:var(--yellow);color:var(--black)}
+.ctime{color:var(--ink)}
+.actionbar{background:var(--black);border-top:none}
+.actionbar .msg{color:#C8C8CC}
+.actionbar .msg .blue,.actionbar .msg b{color:var(--yellow)}
+.actionbar .btn:not(.primary){background:transparent;color:#fff;border-color:#5A5A5F}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--yellow);border-color:var(--ink)}
+input[type=checkbox]{accent-color:var(--ink)}
+.toast{background:var(--black);border-left:4px solid var(--yellow)}
+.toast.err{background:var(--red);border-left-color:#fff}
+.modal-box{background:var(--card)}
+
+/* 試合映像のページは暗い画面（分析室のように） */
+body.wide{--ink:#EDEDEF;--gray:#9A9A9F;--line:#2C2C31;--card:#17171A;--pale:#2A2614;--bg:#0B0B0C;background:var(--bg);color:var(--ink)}
+body.wide .card,body.wide .list,body.wide .li,body.wide .citem,body.wide .pstick,body.wide .tag,body.wide .pill,body.wide .chip,
+body.wide .seg,body.wide .seg button,body.wide input,body.wide select,body.wide textarea,body.wide .pbar button,body.wide .modal-box,body.wide .modal-head,body.wide .modal-foot{background-color:var(--card);color:var(--ink);border-color:var(--line)}
+body.wide .pbar .play{border-color:var(--yellow);color:var(--yellow)}
+body.wide .pbar .rates button.on,body.wide .chip.on,body.wide .seg button.on{background:var(--yellow);color:var(--black);border-color:var(--yellow)}
+body.wide .btn{background:transparent;color:var(--ink);border-color:#4A4A50}
+body.wide .btn.primary{background:var(--yellow);color:var(--black);border-color:var(--yellow)}
+body.wide .btn.ghost{border-color:transparent}
+body.wide .btn:hover,body.wide .citem:hover{background:#222226}
+body.wide .ctime,body.wide .blue{color:var(--yellow)}
+body.wide a{color:var(--ink)}
+body.wide [style*="background:var(--pale)"]{background:#1F1F23 !important}
+body.wide .tl-track{background:#2C2C31}
+body.wide .tl-seg{background:#232327;color:#C8C8CC}
+body.wide .tl-seg.on{border-color:var(--yellow);color:var(--yellow)}
+body.wide .tl-mark{background:var(--yellow)}
+body.wide .tl-track #tl-pos{background:var(--red)}
+body.wide .pstick{border-bottom-color:var(--line)}
+body.wide .player{background:#000}
+.secnav{background:var(--bg)}
