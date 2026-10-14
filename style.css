@@ -482,11 +482,12 @@ body.wide .player{background:#000}
 /* 全画面ボタンと全画面のときの表示 */
 .pbar .fsbtn{margin-left:6px}
 @media (max-width:640px){.pbar .fsbtn{flex:1 1 100%;margin-left:0}}
-.pstick:fullscreen{background:var(--black);padding:16px;display:flex;flex-direction:column;justify-content:center;max-width:none !important}
-.pstick:fullscreen .player{max-height:calc(100vh - 150px);aspect-ratio:16/9;width:auto;margin:0 auto}
+.pstick:fullscreen{background:var(--black);padding:8px 12px;display:flex;flex-direction:column;justify-content:center;max-width:none !important}
+.pstick:fullscreen .player,body.pfull .pstick .player{width:min(100%,calc((100vh - 124px) * 16 / 9));width:min(100%,calc((100dvh - 124px) * 16 / 9));max-height:none;aspect-ratio:16/9;margin:0 auto;border-radius:0;flex:none;align-self:center}
+/* 全画面では映像を16:9のまま画面いっぱいに。タイムラインと操作は映像の幅にそろえる（狭いときは折り返さない幅を確保） */
+.pstick:fullscreen>:not(.player),body.pfull .pstick>:not(.player){width:min(100%,max(760px,calc((100vh - 124px) * 16 / 9)));width:min(100%,max(760px,calc((100dvh - 124px) * 16 / 9)));margin-left:auto;margin-right:auto;align-self:center}
 .pstick:-webkit-full-screen{background:var(--black);width:100%;height:100%}
 body.pfull .pstick{position:fixed;inset:0;z-index:50;margin:0;padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:var(--black);display:flex;flex-direction:column;justify-content:center;max-width:none !important;overflow-y:auto}
-body.pfull .pstick .player{margin:0;width:100%;max-height:calc(100vh - 160px);border-radius:0}
 body.pfull .tabbar,body.pfull .head{display:none}
 /* 映像一覧の絞り込み（年・大会・検索）と大会ごとの見出し */
 .vlist{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
