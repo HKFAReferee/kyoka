@@ -925,20 +925,18 @@ function vlFilter() {
   sets.forEach((s) => s.parts.sort((a, b) => PARTS.indexOf(a.part) - PARTS.indexOf(b.part)));
   const list = sets.filter((s) => (!VY || String(s.match.date).startsWith(VY)) && (!VC || (s.match.comp || 'その他') === VC) && (!q || [s.match.comp, s.match.a, s.match.b, s.team, s.match.name].join(' ').includes(q)))
     .sort((a, b) => String(b.match.date).localeCompare(String(a.match.date)));
-  // 映像ごとのカード：YouTube のサムネイル＋日付・本数、下に対戦・大会・出どころ
+  // 1試合1行：日付・対戦・試合名／出どころ・区分・コメント数（サムネイルなしで一覧性を優先）
   const cardOf = (s) => { const m = s.match, p0 = s.parts[0];
-    return `<a href="#" class="vcard" onclick="go('video','${p0.id}');return false;">
-      <div class="vthumb"><img src="https://i.ytimg.com/vi/${h(p0.yt)}/mqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><span class="vplay">▶</span>
-        <span class="vdate">${m.date ? `${Number(m.date.slice(5, 7))}/${Number(m.date.slice(8, 10))}<small>${wd(m.date)}</small>` : ''}</span>
-        ${s.parts.length > 1 ? `<span class="vparts">${s.parts.length}本をつないで再生</span>` : ''}</div>
-      <div class="vbody"><div class="vteams">${h(m.a)}<span>対</span>${h(m.b)}</div>
-        <div class="vmeta">${h(m.comp)} ${h(m.name)}</div>
-        <div class="vfoot"><span class="vsrc">${h(s.team)}提供</span>${s.parts.length > 1 ? s.parts.map((p) => `<span class="tag">${h(p.part)}</span>`).join('') : ''}<span class="spacer"></span>${s.comments ? `<span class="vcm">コメント ${s.comments}</span>` : ''}</div></div></a>`; };
+    return `<a href="#" class="vrow" onclick="go('video','${p0.id}');return false;">
+      <span class="vdate">${m.date ? `${Number(m.date.slice(5, 7))}/${Number(m.date.slice(8, 10))}<small>${wd(m.date)}</small>` : ''}</span>
+      <span class="vbody"><span class="vteams">${h(m.a)}<span>対</span>${h(m.b)}</span>
+        <span class="vmeta">${h(m.name)}${m.name ? '・' : ''}${h(s.team)}提供${s.parts.length > 1 ? '・' + s.parts.map((p) => h(p.part)).join('／') : ''}</span></span>
+      ${s.comments ? `<span class="vcm">💬 ${s.comments}</span>` : ''}<span class="vgo">›</span></a>`; };
   // 大会ごとに見出しを付けて並べる（大会を1つ選んだときは見出しなし）
   const groups = [];
   list.forEach((s) => { const c = s.match.comp || 'その他'; let g = groups.find((x) => x.c === c); if (!g) groups.push((g = { c, items: [] })); g.items.push(s); });
-  $('#vl').innerHTML = !list.length ? empty('見つかりませんでした') : VC ? `<div class="vgrid">${list.map(cardOf).join('')}</div>`
-    : groups.map((g) => `<div class="vgroup"><h2>${h(g.c)}<span>${g.items.length}試合</span></h2><div class="vgrid">${g.items.map(cardOf).join('')}</div></div>`).join('');
+  $('#vl').innerHTML = !list.length ? empty('見つかりませんでした') : VC ? `<div class="vlist">${list.map(cardOf).join('')}</div>`
+    : groups.map((g) => `<div class="vgroup"><h2>${h(g.c)}<span>${g.items.length}試合</span></h2><div class="vlist">${g.items.map(cardOf).join('')}</div></div>`).join('');
 }
 
 /* ───── 分かれた映像を1本のようにつなぐ（同じ試合・同じ出どころの映像を区分の順に続けて再生） ─────

@@ -479,25 +479,6 @@ body.wide .pstick{border-bottom-color:var(--line)}
 body.wide .player{background:#000}
 .secnav{background:var(--bg)}
 /* 試合映像の一覧：サムネイルのカード */
-.vgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-.vcard{display:block;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;color:var(--ink);text-decoration:none}
-.vcard:hover{border-color:var(--ink)}
-.vthumb{position:relative;aspect-ratio:16/9;background:var(--black)}
-.vthumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.vplay{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:52px;height:52px;border-radius:50%;background:var(--yellow);color:var(--black);display:flex;align-items:center;justify-content:center;font-size:20px;padding-left:4px}
-.vcard:hover .vplay{background:#fff}
-.vdate{position:absolute;left:10px;top:10px;background:var(--black);color:#fff;font-weight:700;font-size:15px;padding:3px 10px;border-radius:6px;font-variant-numeric:tabular-nums}
-.vdate small{font-size:11px;color:var(--yellow);margin-left:4px;font-weight:700}
-.vparts{position:absolute;right:10px;bottom:10px;background:rgba(11,11,12,.85);color:var(--yellow);font-size:12px;font-weight:700;padding:3px 10px;border-radius:6px}
-.vbody{padding:12px 14px 14px}
-.vteams{font-weight:700;font-size:17px;line-height:1.4}
-.vteams span{color:var(--gray);font-weight:400;font-size:13px;margin:0 6px}
-.vmeta{font-size:13px;color:var(--gray);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.vfoot{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;margin-top:10px;font-size:12px}
-.vfoot .tag{margin:0}
-.vsrc{background:var(--bg);border-radius:999px;padding:2px 10px;font-weight:500}
-.vcm{color:var(--ink);font-weight:700}
-@media (max-width:640px){.vgrid{grid-template-columns:1fr;gap:12px}}
 /* 全画面ボタンと全画面のときの表示 */
 .pbar .fsbtn{margin-left:6px}
 @media (max-width:640px){.pbar .fsbtn{flex:1 1 100%;margin-left:0}}
@@ -508,6 +489,18 @@ body.pfull .pstick{position:fixed;inset:0;z-index:50;margin:0;padding:8px 12px c
 body.pfull .pstick .player{margin:0;width:100%;max-height:calc(100vh - 160px);border-radius:0}
 body.pfull .tabbar,body.pfull .head{display:none}
 /* 映像一覧の絞り込み（年・大会・検索）と大会ごとの見出し */
+.vlist{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.vrow{display:flex;align-items:center;gap:12px;padding:9px 14px;border-top:1px solid var(--line);color:var(--ink);text-decoration:none}
+.vrow:first-child{border-top:0}
+.vrow:hover{background:var(--bg)}
+.vdate{flex:none;width:58px;font-weight:700;font-size:15px;font-variant-numeric:tabular-nums}
+.vdate small{font-size:11px;color:var(--gray);margin-left:3px}
+.vbody{flex:1;min-width:0;display:flex;flex-direction:column}
+.vteams{font-weight:700;font-size:15px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vteams span{color:var(--gray);font-weight:400;font-size:12px;margin:0 6px}
+.vmeta{font-size:12px;color:var(--gray);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vcm{flex:none;font-size:12px;font-weight:700}
+.vgo{flex:none;color:var(--gray);font-size:20px;line-height:1}
 .vfilter{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .vfilter select{width:auto;flex:none;font-weight:700;max-width:100%}
 .vfilter .search{flex:1;min-width:200px;margin:0}
