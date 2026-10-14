@@ -8,3 +8,4 @@
 .demo-note{flex:1;min-width:0;font-size:12px}
 .demo-reset{background:none;border:none;padding:4px 0;font:700 12px 'Noto Sans JP',sans-serif;color:#0B0B0C;text-decoration:underline;cursor:pointer}
 @media (max-width:899px){.demobar{padding:8px 16px;gap:8px}.demo-note{display:none}.demo-roles{flex:1}.demo-roles button{flex:1;padding:6px 4px}}
+body.wide .demobar{background:#FFD400}

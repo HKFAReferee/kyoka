@@ -32,7 +32,7 @@ p{margin:0 0 12px}
 .navlink.on{color:var(--blue);font-weight:700;border-left-color:var(--blue);background:var(--pale)}
 .navlink .cnt{margin-left:auto}
 .wrap{margin-left:var(--side);min-height:100vh}
-.head{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);z-index:8}
+.head{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);z-index:8;padding-top:env(safe-area-inset-top)}
 .head-in{max-width:1000px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:12px;min-height:64px}
 .head .back{display:none}
 .head .back.show{display:inline-flex}
@@ -243,9 +243,9 @@ tr.click:hover td{background:var(--pale)}
 @media (max-width:899px){.actionbar{left:0;bottom:calc(var(--bar) + env(safe-area-inset-bottom));padding:8px 16px}}
 
 /* レポート入力 */
-.secnav{display:flex;gap:6px;overflow-x:auto;padding:4px 0 12px;margin:0 0 4px;scrollbar-width:none;position:sticky;top:64px;background:#fff;z-index:5;border-bottom:1px solid var(--line)}
+.secnav{display:flex;gap:6px;overflow-x:auto;padding:4px 0 12px;margin:0 0 4px;scrollbar-width:none;position:sticky;top:calc(var(--top-gap,0px) + env(safe-area-inset-top) + 64px);background:#fff;z-index:5;border-bottom:1px solid var(--line)}
 .secnav::-webkit-scrollbar{display:none}
-@media (max-width:899px){.secnav{top:56px}}
+@media (max-width:899px){.secnav{top:calc(var(--top-gap,0px) + env(safe-area-inset-top) + 56px)}}
 .secnav button{flex:none;border:1px solid var(--line);border-radius:999px;background:#fff;padding:6px 14px;font-size:14px;cursor:pointer;white-space:nowrap;min-height:38px}
 .secnav button.on{border-color:var(--blue);background:var(--blue);color:#fff;font-weight:700}
 .secnav button.err{border-color:var(--accent);color:var(--accent)}
@@ -334,10 +334,10 @@ tr.click:hover td{background:var(--pale)}
 .pbar .rates button.on{background:var(--blue);color:#fff;font-weight:700}
 @media (max-width:640px){.pbar>button{flex:1;padding:6px 4px}.pbar .rates{margin-left:0;width:100%}.pbar .rates button{flex:1}}
 /* 試合映像：映像と操作バーを画面の上に固定（スクロールしても消えない） */
-.pstick{position:sticky;top:65px;z-index:6;background:#fff;padding-top:2px}
+.pstick{position:sticky;top:calc(var(--top-gap,0px) + env(safe-area-inset-top) + 65px);z-index:6;background:#fff;padding-top:2px}
 .pstick .pbar{margin:6px 0 10px}
 @media (max-width:899px){
-  .pstick{top:57px;margin:0 -16px;padding:0 16px;border-bottom:1px solid var(--line)}
+  .pstick{top:calc(var(--top-gap,0px) + env(safe-area-inset-top) + 57px);margin:0 -16px;padding:0 16px;border-bottom:1px solid var(--line)}
   .pstick .player{margin:0 -16px;width:auto;border-radius:0}
   .pstick .pbar{gap:4px;margin:6px 0 8px}
   .pstick .pbar button{min-height:38px;padding:4px 6px;font-size:13px}
@@ -349,7 +349,7 @@ body.wide main,body.wide .head-in{max-width:none}
 @media (min-width:1101px){
   body.wide .vlayout{grid-template-columns:minmax(0,1fr) 400px;gap:24px;align-items:start}
   body.wide .pstick{max-width:calc((100vh - 200px) * 16 / 9);margin:0 auto}
-  body.wide .vright{position:sticky;top:85px;max-height:calc(100vh - 105px);overflow-y:auto}
+  body.wide .vright{position:sticky;top:calc(var(--top-gap,0px) + env(safe-area-inset-top) + 85px);max-height:calc(100vh - 105px);overflow-y:auto}
   body.wide .vright .clist{max-height:none}
 }
 /* 左のメニューを隠すボタン（PCのみ） */
@@ -517,13 +517,16 @@ body.pfull{overflow:hidden}
 .vgroup:first-child h2{margin-top:4px}
 @media (max-width:640px){.vfilter select{flex:1 1 40%}.vfilter .search{flex:1 1 100%}}
 
-/* 割当表（スマホ）：1試合2行。1行目＝日付・時刻・対戦、2行目＝主審・副審・第4審・アセッサー */
-.tlist{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.trow{padding:8px 14px;border-top:1px solid var(--line)}
-.trow:first-child{border-top:0}
-.trow.me{background:#FFF8CC;border-left:4px solid var(--yellow);padding-left:10px}
+/* 割当表（スマホ）：1試合2行。1行目＝日付・時刻・対戦、2行目＝主審〜アセッサーの5人を横一列（見出しは上に1回だけ） */
+.tlist{background:var(--card);border:1px solid var(--line);border-radius:12px}
+.tlist .thead{border-radius:11px 11px 0 0}
+.tlist .trow:last-child{border-radius:0 0 11px 11px}
+.tlist .thead,.trow .t2{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+.tlist .thead{padding:6px 10px;background:var(--black);color:#fff;font-size:11px;font-weight:700;position:sticky;top:0;z-index:2}
+.trow{padding:7px 10px;border-top:1px solid var(--line)}
+.trow.me{background:#FFF8CC;border-left:4px solid var(--yellow);padding-left:6px}
 .trow .t1{display:flex;gap:8px;align-items:baseline;font-size:14px;white-space:nowrap;overflow:hidden}
 .trow .tcard{font-weight:700;overflow:hidden;text-overflow:ellipsis}
-.trow .t2{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:13px;margin-top:2px;line-height:1.5}
-.trow .t2 i{font-style:normal;font-size:11px;color:var(--gray);margin-right:4px}
-.trow .t2 .blue{color:var(--ink);background:var(--yellow);padding:0 4px;border-radius:3px}
+.trow .t2{font-size:12px;margin-top:3px;line-height:1.35}
+.trow .t2 span{overflow-wrap:anywhere}
+.trow .t2 .blue{color:var(--ink);background:var(--yellow);padding:0 2px;border-radius:3px;font-weight:700;-webkit-box-decoration-break:clone;box-decoration-break:clone}

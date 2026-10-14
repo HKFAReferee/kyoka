@@ -489,9 +489,12 @@ function renderTable() {
       <td style="white-space:nowrap"><b>${dl(m.date)}</b><div class="small muted">${h(m.ko)}</div></td>
       <td><div class="b">${card(m)}</div><div class="small muted">${h(m.comp)} ${h(m.name)}／${h(m.venue)}</div></td>
       ${roles.map((x) => `<td>${cell(m, x)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-    <div class="sp-only tlist">${list.map((m) => `<div class="trow ${mine(m) ? 'me' : ''}">
+    <div class="sp-only tlist"><div class="thead">${['主審', '副審1', '副審2', '4審', 'アセッサー'].map((x) => `<span>${x}</span>`).join('')}</div>${list.map((m) => `<div class="trow ${mine(m) ? 'me' : ''}">
       <div class="t1"><b class="num">${dl(m.date)}</b><span class="muted num">${h(m.ko)}</span><span class="tcard">${card(m)}</span></div>
-      <div class="t2">${[['主', ['主審']], ['副', ['副審1', '副審2']], ['4審', ['第4審']], ['ア', ['アセッサー']]].map(([k, rs]) => `<span><i>${k}</i>${rs.map((x) => cell(m, x)).join('・')}</span>`).join('')}</div></div>`).join('')}</div>`}`);
+      <div class="t2">${roles.map((x) => `<span>${cell(m, x)}</span>`).join('')}</div></div>`).join('')}</div>`}`);
+  // 役割の見出しは、上の見出し（黒い帯）のすぐ下に止める
+  const th = $('.tlist .thead'), hd = $('.head');
+  if (th && hd) th.style.top = ((parseFloat(getComputedStyle(hd).top) || 0) + hd.offsetHeight) + 'px';
 }
 
 /* ───────── 個人：レポートと年間評価 ───────── */

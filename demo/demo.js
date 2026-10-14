@@ -32,6 +32,9 @@
       <span class="demo-roles">${ROLES.map((r, i) => `<button class="${i === me ? 'on' : ''}" onclick="demoRole(${i})" title="${r[2]}">${r[1]}</button>`).join('')}</span>
       <span class="demo-note">この端末の中だけで動きます。本番のデータ・メールには関係ありません</span>
       <button class="demo-reset" onclick="demoReset()">最初に戻す</button>`;
+    // 帯は見出しの中にあるので、その分だけ下の「止まる部分」をずらす
+    const fit = () => document.documentElement.style.setProperty('--top-gap', document.getElementById('demobar').offsetHeight + 'px');
+    fit(); addEventListener('resize', fit);
     const s = document.createElement('script'); s.src = '../app.js?v=' + Date.now(); document.body.appendChild(s);
   });
 })();

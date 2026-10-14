@@ -665,7 +665,7 @@ function api_assignTable(t, ym) {
     v.slots = {};
     ROLES.forEach(function (r) {
       const x = s[r];
-      v.slots[r] = !x || !x.kind ? '未定' : x.kind === '強化' ? (x.name || '未定') : (x.name ? x.name + '（地区派遣）' : (x.assoc || '地区協会') + 'に依頼中');
+      v.slots[r] = !x || !x.kind ? '未定' : x.kind === '強化' ? (x.name || '未定') : '地区派遣';
       v['mine_' + r] = !!(x && x.kind === '強化' && x.memberId === c.id);
     });
     return v;
