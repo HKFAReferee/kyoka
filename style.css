@@ -507,6 +507,7 @@ body.pfull{overflow:hidden}
 .vteams span{color:var(--gray);font-weight:400;font-size:12px;margin:0 6px}
 .vmeta{font-size:12px;color:var(--gray);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vcm{flex:none;font-size:12px;font-weight:700}
+.vveo{flex:none;font-size:11px;font-weight:700;border:1px solid var(--ink);border-radius:4px;padding:1px 6px}
 .vgo{flex:none;color:var(--gray);font-size:20px;line-height:1}
 .vfilter{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .vfilter select{width:auto;flex:none;font-weight:700;max-width:100%}

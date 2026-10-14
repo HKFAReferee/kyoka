@@ -544,7 +544,7 @@ function infoRO(match, info, assessor, date) {
 function matchTimeline(videos) {
   const PARTS = B.consts.PARTS || [];
   const sets = {};
-  (videos || []).forEach((v) => (sets[v.team] = sets[v.team] || []).push(v));
+  (videos || []).filter((v) => !v.veo).forEach((v) => (sets[v.team] = sets[v.team] || []).push(v));
   for (const team in sets) {
     const parts = sets[team].sort((a, b) => PARTS.indexOf(a.part) - PARTS.indexOf(b.part) || String(a.at).localeCompare(String(b.at)));
     const tl = tlBuild(parts), mk = tlMarks(tl);
@@ -562,10 +562,14 @@ function kiRO(ki, videos, halfLen) {
     return `<div class="item row top"><span class="b blue num" style="width:56px">${h(k.time)}${/\d$/.test(k.time) ? '分' : ''}</span><div class="pre" style="flex:1">${h(k.text)}</div>${p ? `<button class="btn sm" onclick="go('video','${p.id}@${Math.round(p.local)}')">映像</button>` : ''}</div>`;
   }).join('')}`;
 }
+// Veo の映像は Veo の画面で開く（外から操作できないため、コメント・事例・スローは使えない）
+function veoBtn(v, label) { return `<a class="btn sm" href="${h(v.url)}" target="_blank" rel="noopener">${label} ↗</a>`; }
+const VEO_NOTE = 'Veo の映像は Veo の画面で開きます（コメント・事例・スロー・つなぎ再生は使えません）。使いたいときは、チームに Veo から MP4 をダウンロードして YouTube に「限定公開」で上げてもらい、その URL を登録してください。';
 function videoBtns(videos) {
-  const first = {}; (videos || []).forEach((v) => { if (!first[v.team]) first[v.team] = v; });
+  const first = {}; (videos || []).forEach((v) => { const k = v.team + (v.veo ? '|veo' : ''); if (!first[k]) first[k] = v; });
   const list = Object.values(first);
-  return list.length ? `<div class="row" style="margin:0 0 12px">${list.map((v) => `<button class="btn sm" onclick="go('video','${v.id}')">${icon('videos', 16)} 試合映像（${h(v.team)}提供）</button>`).join('')}</div>` : '';
+  return list.length ? `<div class="row" style="margin:0 0 12px">${list.map((v) => v.veo ? veoBtn(v, `Veoで見る（${h(v.team)}提供）`)
+    : `<button class="btn sm" onclick="go('video','${v.id}')">${icon('videos', 16)} 試合映像（${h(v.team)}提供）</button>`).join('')}</div>` : '';
 }
 
 ROUTES.myreport = async (matchId) => {
@@ -901,6 +905,23 @@ function vlComps() {
 }
 let VC = '';
 let VY = '';
+/* Veo の映像：区分ごとに「Veoで開く」。登録した人・委員会はここから直す・消す */
+function veoSet(id) { const v = VL.find((x) => x.id === id); return v ? VL.filter((x) => x.veo && x.matchId === v.matchId && x.team === v.team).sort((a, b) => (B.consts.PARTS || []).indexOf(a.part) - (B.consts.PARTS || []).indexOf(b.part)) : []; }
+function canEditV(p) { return B.ctx.com || (p.byId && p.byId === B.ctx.id); }
+function veoOpen(id) {
+  const set = veoSet(id); if (!set.length) return;
+  const m = set[0].match;
+  openModal({ title: `${m.a} 対 ${m.b}`, body: `<p class="small muted" style="margin-top:0">${h(m.comp)} ${h(m.name)}・${h(set[0].team)}提供</p>
+    <div class="list">${set.map((p) => `<div class="li"><div class="main"><div class="t">${h(p.part)}</div></div>
+      ${canEditV(p) ? `<button class="btn sm ghost" onclick="vdEdit('${p.id}')">直す</button><button class="btn sm ghost danger" onclick="veoDel('${p.id}')">削除</button>` : ''}
+      <a class="btn sm primary" href="${h(p.url)}" target="_blank" rel="noopener">Veoで開く ↗</a></div>`).join('')}</div>
+    <p class="small muted" style="margin-bottom:0">${h(VEO_NOTE)}</p>` });
+}
+async function veoDel(id) {
+  const p = VL.find((x) => x.id === id);
+  if (!p || !confirm(`この映像（${p.part}）の登録を削除しますか？`)) return;
+  try { await call('api_delVideo', id, false); toast('削除しました'); closeModal(); go('videos'); } catch (e) { fail(e); }
+}
 /* メンバーが映像を登録する（チームから受け取った映像など） */
 let VM = [];
 async function vdAdd() {
@@ -911,7 +932,7 @@ async function vdAdd() {
     <div class="field"><label>試合</label><select id="vd-m" onchange="vdTeams()">${VM.map((m) => `<option value="${m.id}">${dl(m.date)}　${h(m.a)} 対 ${h(m.b)}（${h(m.comp)} ${h(m.name)}）</option>`).join('')}</select><div class="hint">今日までの試合が新しい順に並んでいます</div></div>
     <div class="field"><label>映像の出どころ</label><input id="vd-src" list="vd-teams" placeholder="例：北海FC（チームから受け取り）"><datalist id="vd-teams"></datalist><div class="hint">どこから届いた映像か（チーム名など）。映像の一覧に「○○提供」と表示されます</div></div>
     <div class="field"><label>区分</label><select id="vd-part">${(B.consts.PARTS || ['試合全体']).map((p) => `<option>${p}</option>`).join('')}</select><div class="hint">映像が前半・後半などに分かれているときは、1本ずつ区分を選んで登録してください。同じ出どころの映像は、見るときに区分の順につないで再生します</div></div>
-    <div class="field"><label>YouTube の URL</label><input id="vd-url" type="url" inputmode="url" placeholder="https://youtu.be/..."><div class="hint">YouTube に「限定公開」でアップロードした映像のURLを貼り付けてください</div></div>`
+    <div class="field"><label>YouTube か Veo の URL</label><input id="vd-url" type="url" inputmode="url" placeholder="https://youtu.be/... または Veo の共有リンク"><div class="hint">YouTube は「限定公開」の映像の URL、Veo は試合を「公開」にした共有リンクを貼り付けてください。${h(VEO_NOTE)}</div></div>`
     : empty('登録できる試合がありません（今日までの試合が対象です）');
   if (VM.length) { $('#vd-save').disabled = false; vdTeams(); }
 }
@@ -919,9 +940,9 @@ function vdTeams() { const m = VM.find((x) => x.id === $('#vd-m').value); $('#vd
 async function vdSave() {
   const url = $('#vd-url').value.trim(), src = $('#vd-src').value.trim();
   if (!src) return toast('映像の出どころを入力してください', true);
-  if (!url) return toast('YouTube の URL を貼り付けてください', true);
+  if (!url) return toast('YouTube か Veo の URL を貼り付けてください', true);
   $('#vd-save').disabled = true;
-  try { const r = await call('api_addVideo', $('#vd-m').value, src, url, $('#vd-part').value); toast('登録しました'); closeModal(); go('video', r.id); }
+  try { const r = await call('api_addVideo', $('#vd-m').value, src, url, $('#vd-part').value); toast('登録しました'); closeModal(); r.veo ? go('videos') : go('video', r.id); }
   catch (e) { $('#vd-save').disabled = false; fail(e); }
 }
 async function vdDel(id) {
@@ -941,17 +962,17 @@ function vlFilter() {
   const q = ($('#vl-q') || {}).value || '';
   // 同じ試合・同じ出どころの映像（前半・後半など）は1行にまとめる
   const PARTS = B.consts.PARTS || [], sets = [];
-  VL.forEach((v) => { let s = sets.find((x) => x.matchId === v.matchId && x.team === v.team); if (!s) sets.push((s = { matchId: v.matchId, team: v.team, match: v.match, parts: [], comments: 0 })); s.parts.push(v); s.comments += v.comments; });
+  VL.forEach((v) => { let s = sets.find((x) => x.matchId === v.matchId && x.team === v.team && x.veo === !!v.veo); if (!s) sets.push((s = { matchId: v.matchId, team: v.team, veo: !!v.veo, match: v.match, parts: [], comments: 0 })); s.parts.push(v); s.comments += v.comments; });
   sets.forEach((s) => s.parts.sort((a, b) => PARTS.indexOf(a.part) - PARTS.indexOf(b.part)));
   const list = sets.filter((s) => (!VY || String(s.match.date).startsWith(VY)) && (!VC || (s.match.comp || 'その他') === VC) && (!q || [s.match.comp, s.match.a, s.match.b, s.team, s.match.name].join(' ').includes(q)))
     .sort((a, b) => String(b.match.date).localeCompare(String(a.match.date)));
   // 1試合1行：日付・対戦・試合名／出どころ・区分・コメント数（サムネイルなしで一覧性を優先）
   const cardOf = (s) => { const m = s.match, p0 = s.parts[0];
-    return `<a href="#" class="vrow" onclick="go('video','${p0.id}');return false;">
+    return `<a href="#" class="vrow" onclick="${s.veo ? `veoOpen('${p0.id}')` : `go('video','${p0.id}')`};return false;">
       <span class="vdate">${m.date ? `${Number(m.date.slice(5, 7))}/${Number(m.date.slice(8, 10))}<small>${wd(m.date)}</small>` : ''}</span>
       <span class="vbody"><span class="vteams">${h(m.a)}<span>対</span>${h(m.b)}</span>
         <span class="vmeta">${h(m.name)}${m.name ? '・' : ''}${h(s.team)}提供${s.parts.length > 1 ? '・' + s.parts.map((p) => h(p.part)).join('／') : ''}</span></span>
-      ${s.comments ? `<span class="vcm">💬 ${s.comments}</span>` : ''}<span class="vgo">›</span></a>`; };
+      ${s.veo ? '<span class="vveo">Veo</span>' : ''}${s.comments ? `<span class="vcm">💬 ${s.comments}</span>` : ''}<span class="vgo">›</span></a>`; };
   // 大会ごとに見出しを付けて並べる（大会を1つ選んだときは見出しなし）
   const groups = [];
   list.forEach((s) => { const c = s.match.comp || 'その他'; let g = groups.find((x) => x.c === c); if (!g) groups.push((g = { c, items: [] })); g.items.push(s); });
@@ -1089,7 +1110,7 @@ ROUTES.video = async (arg) => {
       <div class="pstick"><div id="player-anchor" class="player"><div id="yt-main"></div><div class="ptap" onclick="tapCtl()" onpointermove="if(event.pointerType==='mouse')pokeCtl()"></div></div><div class="pctl" onpointerdown="pokeCtl()">${tlBarHtml()}${playerBar('main')}</div></div>
       <div style="margin:12px 0"><div class="b" style="font-size:17px">${card(m)}</div><div class="small muted">${dl(m.date)} ${h(m.ko)}　${h(m.comp)} ${h(m.name)}／${h(m.venue)}／${h(v.team)}提供${v.by ? `（${h(v.by)}さんが登録）` : ''}</div>
       <div id="parts" style="margin-top:6px"></div>
-      ${VD.others.length ? `<div style="margin-top:6px">${VD.others.map((o) => `<button class="btn sm" onclick="go('video','${o.id}')">${h(o.team)}提供の映像に切り替え</button>`).join(' ')}</div>` : ''}
+      ${VD.others.length || (VD.veo || []).length ? `<div style="margin-top:6px">${VD.others.map((o) => `<button class="btn sm" onclick="go('video','${o.id}')">${h(o.team)}提供の映像に切り替え</button>`).join(' ')} ${(VD.veo || []).map((o) => veoBtn(o, `Veoで見る（${h(o.team)}提供・${h(o.part)}）`)).join(' ')}</div>` : ''}
       <div style="margin-top:8px">${crew}</div></div>
     </div><div class="vright">
       <div id="marks"></div>
@@ -1122,23 +1143,24 @@ function vdFix() {
       ${canEditVideo(p) ? `<button class="btn sm" onclick="vdEdit('${p.id}')">直す</button><button class="btn sm danger" onclick="vdDel('${p.id}')">削除</button>` : '<span class="small muted">登録した人か委員会が直せます</span>'}</div>`).join('')}</div>` });
 }
 async function vdEdit(id) {
-  const p = TL.parts[tlIdx(id)];
+  const onPage = TL && tlIdx(id) >= 0, p = onPage ? TL.parts[tlIdx(id)] : VL.find((x) => x.id === id), match = onPage ? VD.match : p.match;
   $('#modal .modal-body').innerHTML = '<p class="loading">読み込み中…</p>';
+  $('#modal .modal-foot') && $('#modal .modal-foot').remove();
   try { VM = await get('api_videoMatches'); } catch (e) { return fail(e); }
-  const ms = VM.some((m) => m.id === VD.match.id) ? VM : [VD.match].concat(VM);
+  const ms = VM.some((m) => m.id === match.id) ? VM : [match].concat(VM);
   $('#modal .modal-body').innerHTML = `
-    <div class="field"><label>試合</label><select id="ve-m">${ms.map((m) => `<option value="${m.id}" ${m.id === VD.match.id ? 'selected' : ''}>${dl(m.date)}　${h(m.a)} 対 ${h(m.b)}（${h(m.comp)} ${h(m.name)}）</option>`).join('')}</select></div>
-    <div class="field"><label>映像の出どころ</label><input id="ve-src" value="${h(p.team || VD.team || '')}"><div class="hint">同じ試合・同じ出どころの映像が、つないで再生する1組になります</div></div>
+    <div class="field"><label>試合</label><select id="ve-m">${ms.map((m) => `<option value="${m.id}" ${m.id === match.id ? 'selected' : ''}>${dl(m.date)}　${h(m.a)} 対 ${h(m.b)}（${h(m.comp)} ${h(m.name)}）</option>`).join('')}</select></div>
+    <div class="field"><label>映像の出どころ</label><input id="ve-src" value="${h(p.team || (onPage && VD.team) || '')}"><div class="hint">同じ試合・同じ出どころの映像が、つないで再生する1組になります</div></div>
     <div class="field"><label>区分</label><select id="ve-part">${(B.consts.PARTS || ['試合全体']).map((x) => `<option ${x === p.part ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
-    <div class="field"><label>YouTube の URL</label><input id="ve-url" type="url" value="${h(p.url || '')}"><div class="hint">URL を別の動画に変えると、その映像のキックオフ・後半開始の位置は設定し直しになります</div></div>`;
+    <div class="field"><label>YouTube か Veo の URL</label><input id="ve-url" type="url" value="${h(p.url || '')}"><div class="hint">URL を別の動画に変えると、その映像のキックオフ・後半開始の位置は設定し直しになります</div></div>`;
   $('#modal .modal-head h2').textContent = p.part + 'の登録を直す';
-  $('#modal .modal-box').insertAdjacentHTML('beforeend', `<div class="modal-foot"><button class="btn" onclick="vdFix()">戻る</button><button class="btn primary" onclick="vdEditSave('${id}')">保存</button></div>`);
+  $('#modal .modal-box').insertAdjacentHTML('beforeend', `<div class="modal-foot"><button class="btn" onclick="${onPage ? 'vdFix()' : `veoOpen('${id}')`}">戻る</button><button class="btn primary" onclick="vdEditSave('${id}')">保存</button></div>`);
 }
 async function vdEditSave(id) {
   const x = { matchId: $('#ve-m').value, source: $('#ve-src').value.trim(), part: $('#ve-part').value, url: $('#ve-url').value.trim() };
   if (!x.source) return toast('映像の出どころを入力してください', true);
-  if (!x.url) return toast('YouTube の URL を貼り付けてください', true);
-  try { await call('api_editVideo', id, x); toast('直しました'); closeModal(); go('video', id); } catch (e) { fail(e); }
+  if (!x.url) return toast('YouTube か Veo の URL を貼り付けてください', true);
+  try { const r = await call('api_editVideo', id, x); toast('直しました'); closeModal(); r.veo ? go('videos') : go('video', id); } catch (e) { fail(e); }
 }
 function renderMarks() {
   if (!$('#marks') || !TL) return;
@@ -1788,14 +1810,16 @@ function renderTeam() {
   const parts = B.consts.PARTS || ['試合全体'];
   setMain(`<div class="card pale"><p style="margin:0 0 6px"><b>試合映像のご提供ありがとうございます。</b></p>
     <ol class="small" style="margin:0;padding-left:20px"><li>YouTubeに<b>「限定公開」</b>でアップロード</li><li>そのURLを下の試合の欄に貼り付けて「登録」</li></ol>
+    <p class="small" style="margin:8px 0 0"><b>Veo をお使いの場合</b>：試合を「公開」にした共有リンクをそのまま貼り付けても登録できます。できれば Veo からダウンロードした MP4 を YouTube に「限定公開」で上げていただくと、研修で場面ごとの解説に使えるので助かります（両方の登録もできます）。</p>
     <p class="small muted" style="margin:8px 0 0">映像が前半・後半などに分かれているときは、区分を選んで1本ずつ登録してください（見るときは自動でつないで再生されます）。映像は北海道の強化審判員の研修だけに使います。研修教材として使う場合があるため、登録した映像は削除しないようお願いします。</p></div>
     ${TM.matches.length ? `<h2>${todo ? `未登録 ${todo}試合` : 'すべて登録済みです'}</h2>${TM.matches.map((m, i) => `<div class="mcard"><div class="mhead">${dateBox(m.date)}<div class="main"><div class="t">${card(m)}</div><div class="s">${h(m.comp)} ${h(m.name)}</div></div>${m.videos.length ? `<span class="pill ok">${m.videos.length}本 登録済み</span>` : ''}</div>
       <div style="padding:12px 16px">
-        ${m.videos.map((v) => `<div class="row" style="margin-bottom:8px"><span class="pill">${h(v.part)}</span><a class="small" href="${h(v.url)}" target="_blank" rel="noopener">YouTubeで確認</a><span class="spacer"></span><button class="btn sm ghost" onclick="tmDel('${v.id}')">取り消す</button></div>`).join('')}
-        <div class="row" style="flex-wrap:nowrap;gap:6px"><select id="tm-p-${i}" style="width:auto;flex:none">${parts.map((p) => `<option ${m.videos.some((v) => v.part === p) ? 'disabled' : ''}>${p}</option>`).join('')}</select>
-        <input id="tm-${i}" type="url" inputmode="url" placeholder="https://youtu.be/..." style="flex:1;min-width:0"><button class="btn primary" onclick="tmSave(${i})">${m.videos.length ? '追加' : '登録'}</button></div></div></div>`).join('')}`
+        ${m.videos.map((v) => `<div class="row" style="margin-bottom:8px"><span class="pill">${h(v.part)}</span><a class="small" href="${h(v.url)}" target="_blank" rel="noopener">${v.veo ? 'Veo' : 'YouTube'}で確認</a><span class="spacer"></span><button class="btn sm ghost" onclick="tmDel('${v.id}')">取り消す</button></div>`).join('')}
+        <div class="row" style="flex-wrap:nowrap;gap:6px"><select id="tm-p-${i}" style="width:auto;flex:none">${parts.map((p) => `<option ${m.videos.some((v) => v.part === p) ? 'data-used="1"' : ''}>${p}</option>`).join('')}</select>
+        <input id="tm-${i}" type="url" inputmode="url" placeholder="YouTube か Veo の URL" style="flex:1;min-width:0"><button class="btn primary" onclick="tmSave(${i})">${m.videos.length ? '追加' : '登録'}</button></div></div></div>`).join('')}`
     : empty('登録できる試合はまだありません')}`);
-  TM.matches.forEach((m, i) => { const sel = $('#tm-p-' + i); if (sel && sel.selectedOptions[0] && sel.selectedOptions[0].disabled) { const o = [...sel.options].find((x) => !x.disabled); if (o) sel.value = o.value; } });
+  // 区分は、まだ登録していないものを最初に選んでおく（同じ区分の YouTube と Veo を両方登録することもできる）
+  TM.matches.forEach((m, i) => { const sel = $('#tm-p-' + i); if (sel) { const o = [...sel.options].find((x) => !x.dataset.used); if (o) sel.value = o.value; } });
 }
 async function tmSave(i) {
   if (!$('#tm-' + i).value.trim()) return toast('URLを貼り付けてください', true);
