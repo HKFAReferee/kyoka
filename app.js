@@ -896,7 +896,15 @@ function vlFilter(q) {
   sets.forEach((s) => s.parts.sort((a, b) => PARTS.indexOf(a.part) - PARTS.indexOf(b.part)));
   const list = sets.filter((s) => !q || [s.match.comp, s.match.a, s.match.b, s.team, s.match.name].join(' ').includes(q))
     .sort((a, b) => String(b.match.date).localeCompare(String(a.match.date)));
-  $('#vl').innerHTML = list.length ? `<div class="list">${list.map((s) => matchLi(s.match, `<div style="text-align:right" class="small"><div class="muted">${h(s.team)}提供</div>${s.parts.length > 1 ? `<div class="muted">${s.parts.map((p) => h(p.part)).join('・')}</div>` : ''}${s.comments ? `<div class="blue b">コメント ${s.comments}</div>` : ''}</div>`, `go('video','${s.parts[0].id}')`)).join('')}</div>` : empty('見つかりませんでした');
+  // 映像ごとのカード：YouTube のサムネイル＋日付・本数、下に対戦・大会・出どころ
+  $('#vl').innerHTML = list.length ? `<div class="vgrid">${list.map((s) => { const m = s.match, p0 = s.parts[0];
+    return `<a href="#" class="vcard" onclick="go('video','${p0.id}');return false;">
+      <div class="vthumb"><img src="https://i.ytimg.com/vi/${h(p0.yt)}/mqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><span class="vplay">▶</span>
+        <span class="vdate">${m.date ? `${Number(m.date.slice(5, 7))}/${Number(m.date.slice(8, 10))}<small>${wd(m.date)}</small>` : ''}</span>
+        ${s.parts.length > 1 ? `<span class="vparts">${s.parts.length}本をつないで再生</span>` : ''}</div>
+      <div class="vbody"><div class="vteams">${h(m.a)}<span>対</span>${h(m.b)}</div>
+        <div class="vmeta">${h(m.comp)} ${h(m.name)}</div>
+        <div class="vfoot"><span class="vsrc">${h(s.team)}提供</span>${s.parts.length > 1 ? s.parts.map((p) => `<span class="tag">${h(p.part)}</span>`).join('') : ''}<span class="spacer"></span>${s.comments ? `<span class="vcm">コメント ${s.comments}</span>` : ''}</div></div></a>`; }).join('')}</div>` : empty('見つかりませんでした');
 }
 
 /* ───── 分かれた映像を1本のようにつなぐ（同じ試合・同じ出どころの映像を区分の順に続けて再生） ─────
