@@ -526,6 +526,12 @@ body.pfull{overflow:hidden}
 .trow{padding:7px 10px;border-top:1px solid var(--line)}
 .trow.me{background:#FFF8CC;border-left:4px solid var(--yellow);padding-left:6px}
 .trow .t1{display:flex;gap:8px;align-items:baseline;font-size:14px;white-space:nowrap;overflow:hidden}
+.trow .t3{font-size:12px;color:var(--gray);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tlist .tday{padding:8px 10px 2px;font-weight:700;font-size:15px;border-top:1px solid var(--line)}
+.tlist .tcomp{padding:2px 10px 4px;font-size:12px;font-weight:700;color:var(--gray)}
+.tlist .tday + .tcomp{padding-top:0}
+.tlist .tcomp + .trow{border-top:0}
+.tlist .trow + .tcomp{border-top:1px solid var(--line);padding-top:8px}
 .trow .tcard{font-weight:700;overflow:hidden;text-overflow:ellipsis}
 .trow .t2{font-size:12px;margin-top:3px;line-height:1.35}
 .trow .t2 span{overflow-wrap:anywhere}

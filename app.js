@@ -477,6 +477,13 @@ ROUTES.table = async (ym) => {
   head('割当表', null, monthNav('table', TB.month, TB.months));
   renderTable();
 };
+// 割当表（スマホ）：日付ごと、その中を大会（リーグ）ごとにまとめる
+function tGroups(list) {
+  const sorted = list.slice().sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.comp).localeCompare(String(b.comp)) || String(a.ko).localeCompare(String(b.ko)));
+  const out = [];
+  sorted.forEach((m) => { let g = out[out.length - 1]; if (!g || g.date !== m.date || g.comp !== m.comp) out.push((g = { date: m.date, comp: m.comp, newDay: !g || g.date !== m.date, items: [] })); g.items.push(m); });
+  return out;
+}
 function renderTable() {
   const roles = B.consts.ROLES;
   const mine = (m) => roles.some((x) => m['mine_' + x]);
@@ -489,9 +496,11 @@ function renderTable() {
       <td style="white-space:nowrap"><b>${dl(m.date)}</b><div class="small muted">${h(m.ko)}</div></td>
       <td><div class="b">${card(m)}</div><div class="small muted">${h(m.comp)} ${h(m.name)}／${h(m.venue)}</div></td>
       ${roles.map((x) => `<td>${cell(m, x)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-    <div class="sp-only tlist"><div class="thead">${['主審', '副審1', '副審2', '4審', 'アセッサー'].map((x) => `<span>${x}</span>`).join('')}</div>${list.map((m) => `<div class="trow ${mine(m) ? 'me' : ''}">
-      <div class="t1"><b class="num">${dl(m.date)}</b><span class="muted num">${h(m.ko)}</span><span class="tcard">${card(m)}</span></div>
-      <div class="t2">${roles.map((x) => `<span>${cell(m, x)}</span>`).join('')}</div></div>`).join('')}</div>`}`);
+    <div class="sp-only tlist"><div class="thead">${['主審', '副審1', '副審2', '4審', 'アセッサー'].map((x) => `<span>${x}</span>`).join('')}</div>${tGroups(list).map((g) => `
+      ${g.newDay ? `<div class="tday">${dl(g.date)}</div>` : ''}<div class="tcomp">${h(g.comp || '大会名なし')}</div>${g.items.map((m) => `<div class="trow ${mine(m) ? 'me' : ''}">
+      <div class="t1"><span class="muted num">${h(m.ko)}</span><span class="tcard">${card(m)}</span></div>
+      ${m.name || m.venue ? `<div class="t3">${[m.name, m.venue].filter(Boolean).map(h).join('・')}</div>` : ''}
+      <div class="t2">${roles.map((x) => `<span>${cell(m, x)}</span>`).join('')}</div></div>`).join('')}`).join('')}</div>`}`);
   // 役割の見出しは、上の見出し（黒い帯）のすぐ下に止める
   const th = $('.tlist .thead'), hd = $('.head');
   if (th && hd) th.style.top = ((parseFloat(getComputedStyle(hd).top) || 0) + hd.offsetHeight) + 'px';
