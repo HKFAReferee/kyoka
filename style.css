@@ -516,3 +516,14 @@ body.pfull{overflow:hidden}
 .vgroup h2 span{font-size:13px;color:var(--gray);font-weight:400}
 .vgroup:first-child h2{margin-top:4px}
 @media (max-width:640px){.vfilter select{flex:1 1 40%}.vfilter .search{flex:1 1 100%}}
+
+/* 割当表（スマホ）：1試合2行。1行目＝日付・時刻・対戦、2行目＝主審・副審・第4審・アセッサー */
+.tlist{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.trow{padding:8px 14px;border-top:1px solid var(--line)}
+.trow:first-child{border-top:0}
+.trow.me{background:#FFF8CC;border-left:4px solid var(--yellow);padding-left:10px}
+.trow .t1{display:flex;gap:8px;align-items:baseline;font-size:14px;white-space:nowrap;overflow:hidden}
+.trow .tcard{font-weight:700;overflow:hidden;text-overflow:ellipsis}
+.trow .t2{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:13px;margin-top:2px;line-height:1.5}
+.trow .t2 i{font-style:normal;font-size:11px;color:var(--gray);margin-right:4px}
+.trow .t2 .blue{color:var(--ink);background:var(--yellow);padding:0 4px;border-radius:3px}

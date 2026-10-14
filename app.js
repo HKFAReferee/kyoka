@@ -230,7 +230,7 @@ function go(page, arg) {
   if (LEAVE) { try { LEAVE(); } catch (e) {} LEAVE = null; }
   if (!ROUTES[page]) page = B.ctx.kind === 'team' ? 'team' : 'home';
   CUR = page; CUR_ARG = arg; GEN++; FRESH = new Set(); renderNav(); destroyPlayer('main'); clearInterval(TL_TIMER); TL = null;
-  document.body.classList.toggle('wide', page === 'video'); document.body.classList.remove('pfull');   // 映像のページは画面の横幅いっぱいを使う
+  document.body.classList.toggle('wide', page === 'video'); document.body.classList.remove('pfull'); fsLabel();   // 映像のページは画面の横幅いっぱいを使う
   if (!$('#modal').hidden) closeModal();
   try { const q = new URLSearchParams({ t: TOKEN, p: page }); if (arg) q.set('a', arg); history.replaceState(null, '', '?' + q.toString()); } catch (e) {}
   head(PAGES[PARENT[page] || page] ? PAGES[PARENT[page] || page][0] : '', null, '');
@@ -310,6 +310,9 @@ function fsLabel() {
   const b = $('.fsbtn'), el = $('.pstick'), on = fsOn();
   if (b) b.textContent = on ? '✕ 元に戻す' : '⛶ 全画面';
   if (el) { el.classList.toggle('fs', on); if (on) pokeCtl(); else el.classList.remove('idle'); }
+  // iPhone の全画面（画面いっぱいに広げる方）では、カメラ部分の余白を YouTube の中にまで伝えないよう viewport-fit=cover を外す（映像が右に寄るのを防ぐ）
+  const vp = document.querySelector('meta[name=viewport]');
+  if (vp) vp.content = 'width=device-width, initial-scale=1' + (document.body.classList.contains('pfull') ? '' : ', viewport-fit=cover');
 }
 // 全画面では操作を映像の上に重ね、再生中に3秒さわらなければ消す（タップかマウスを動かすと出る）
 let CTL_T;
@@ -486,9 +489,9 @@ function renderTable() {
       <td style="white-space:nowrap"><b>${dl(m.date)}</b><div class="small muted">${h(m.ko)}</div></td>
       <td><div class="b">${card(m)}</div><div class="small muted">${h(m.comp)} ${h(m.name)}／${h(m.venue)}</div></td>
       ${roles.map((x) => `<td>${cell(m, x)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-    <div class="sp-only">${list.map((m) => `<div class="mcard ${mine(m) ? 'blue' : ''}" style="${mine(m) ? 'border-color:var(--blue)' : ''}">
-      <div class="mhead">${dateBox(m.date)}<div class="main"><div class="t">${card(m)}</div><div class="s">${h(m.ko)}　${h(m.comp)} ${h(m.name)}</div><div class="s">${h(m.venue)}</div></div></div>
-      <div style="padding:8px 16px 10px">${roles.map((x) => `<div class="row" style="padding:3px 0"><span class="small muted" style="width:72px">${x}</span><span>${cell(m, x)}</span></div>`).join('')}</div></div>`).join('')}</div>`}`);
+    <div class="sp-only tlist">${list.map((m) => `<div class="trow ${mine(m) ? 'me' : ''}">
+      <div class="t1"><b class="num">${dl(m.date)}</b><span class="muted num">${h(m.ko)}</span><span class="tcard">${card(m)}</span></div>
+      <div class="t2">${[['主', ['主審']], ['副', ['副審1', '副審2']], ['4審', ['第4審']], ['ア', ['アセッサー']]].map(([k, rs]) => `<span><i>${k}</i>${rs.map((x) => cell(m, x)).join('・')}</span>`).join('')}</div></div>`).join('')}</div>`}`);
 }
 
 /* ───────── 個人：レポートと年間評価 ───────── */
