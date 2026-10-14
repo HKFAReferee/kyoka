@@ -507,3 +507,11 @@ body.wide .player{background:#000}
 body.pfull .pstick{position:fixed;inset:0;z-index:50;margin:0;padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:var(--black);display:flex;flex-direction:column;justify-content:center;max-width:none !important;overflow-y:auto}
 body.pfull .pstick .player{margin:0;width:100%;max-height:calc(100vh - 160px);border-radius:0}
 body.pfull .tabbar,body.pfull .head{display:none}
+/* 映像一覧の絞り込み（年・大会・検索）と大会ごとの見出し */
+.vfilter{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.vfilter select{width:auto;flex:none;font-weight:700;max-width:100%}
+.vfilter .search{flex:1;min-width:200px;margin:0}
+.vgroup h2{display:flex;align-items:baseline;gap:8px;margin:20px 0 10px}
+.vgroup h2 span{font-size:13px;color:var(--gray);font-weight:400}
+.vgroup:first-child h2{margin-top:4px}
+@media (max-width:640px){.vfilter select{flex:1 1 40%}.vfilter .search{flex:1 1 100%}}
