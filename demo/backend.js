@@ -932,17 +932,19 @@ function api_saveMatches(t, list) {
   const c = ctx_(t); need_(c, 'com');
   const errs = [];
   return withLock_(function () {
-    let n = 0;
+    let n = 0, skipped = 0;
     list.forEach(function (x, i) {
       const date = normDate_(x.date), ko = normTime_(x.ko);
       if (!date || !x.a || !x.b || !x.comp) { errs.push((i + 1) + '行目：大会名・試合日・チームA・チームBは必須です'); return; }
       const o = { '試合ID': x.id || uid_(), '対象月': ym_(date), '大会名': x.comp, '試合名': x.name || '', '試合日': date, 'キックオフ': ko,
         '会場': x.venue || '', 'チームA': x.a, 'チームB': x.b };
       const ex = x.id ? match_(x.id) : null;
+      // 新しく追加する行で、同じ日・同じ対戦がもうあれば飛ばす（同じCSVを2回取り込んでも重ならない）
+      if (!ex && rows_('試合').some(function (r) { return r['試合日'] === date && r['チームA'] === x.a && r['チームB'] === x.b; })) { skipped++; return; }
       if (ex) update_('試合', ex._row, o); else append_('試合', o);
       n++;
     });
-    return { saved: n, errors: errs };
+    return { saved: n, skipped: skipped, errors: errs };
   });
 }
 

@@ -536,3 +536,4 @@ body.pfull{overflow:hidden}
 .trow .t2{font-size:12px;margin-top:3px;line-height:1.35}
 .trow .t2 span{overflow-wrap:anywhere}
 .trow .t2 .blue{color:var(--ink);background:var(--yellow);padding:0 2px;border-radius:3px;font-weight:700;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+tr.warn td{background:#FDECEC}

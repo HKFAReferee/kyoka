@@ -1411,10 +1411,10 @@ ROUTES.c_matches = async (ym) => {
         : `<div class="b">${CM.matches.length ? 'まだ公開していません' : '試合を登録してください'}</div><div class="small muted">公開すると全強化審判員に稼働調査の回答依頼メールが届きます。毎月10日の朝、翌月の一覧が未公開なら自動で公開されます。</div>`}</div>
       <button class="btn ${CM.listPublished ? '' : 'primary'}" onclick="cmPublish()" ${CM.matches.length ? '' : 'disabled'}>${CM.listPublished ? '回答依頼を再送' : '公開して回答依頼'}</button></div></div>
     ${noVenue ? `<div class="card warn small"><span class="red b">会場マスタにない会場が ${noVenue}件 あります。</span>派遣依頼の宛先が決まらないため、マスタの「会場」に登録してください。</div>` : ''}
-    <div class="row" style="margin:20px 0 10px"><h2 style="margin:0">${CM.matches.length}試合</h2><span class="spacer"></span><button class="btn" onclick="cmPaste()">Excelから貼り付け</button><button class="btn primary" onclick="cmEdit(-1)">＋ 試合を追加</button></div>
+    <div class="row" style="margin:20px 0 10px"><h2 style="margin:0">${CM.matches.length}試合</h2><span class="spacer"></span><button class="btn" onclick="cmPaste()">CSV・Excelから取り込み</button><button class="btn primary" onclick="cmEdit(-1)">＋ 試合を追加</button></div>
     ${CM.matches.length ? Object.keys(byDate).sort().map((d) => `<div class="flabel" style="margin-top:12px">${dl(d)}</div><div class="list">${byDate[d].map(([m, i]) =>
       `<a href="#" class="li" onclick="cmEdit(${i});return false;"><span class="b num" style="width:48px">${h(m.ko)}</span><div class="main"><div class="t">${card(m)}</div><div class="s">${h(m.comp)} ${h(m.name)}／${h(m.venue)}${m.venue && !m.assoc ? ' <span class="red">（会場マスタ未登録）</span>' : ''}</div></div><span class="chev">›</span></a>`).join('')}</div>`).join('')
-      : empty('この月の試合はまだありません。<br>「＋ 試合を追加」か「Excelから貼り付け」で登録します。')}
+      : empty('この月の試合はまだありません。<br>「＋ 試合を追加」か「CSV・Excelから取り込み」で登録します。')}
     <datalist id="dl-venue">${CM.venues.map((v) => `<option value="${h(v)}">`).join('')}</datalist>
     <datalist id="dl-team">${CM.teams.map((v) => `<option value="${h(v)}">`).join('')}</datalist>
     <datalist id="dl-comp">${CM.comps.map((v) => `<option value="${h(v)}">`).join('')}</datalist>`);
@@ -1439,24 +1439,77 @@ async function cmSaveOne(id, again) {
     closeModal(); go('c_matches', x.date.slice(0, 7) || CM.month);
   } catch (e) { fail(e); }
 }
+/* CSV・Excelから取り込み：CSVファイルを選ぶか、Excelからコピーして貼り付ける。見出し行があれば列の順番は自由 */
+const CM_COLS = [['comp', '大会名'], ['name', '試合名'], ['date', '試合日'], ['ko', 'キックオフ'], ['venue', '会場'], ['a', 'チームA'], ['b', 'チームB']];
+let PT = [];
 function cmPaste() {
-  openModal({ title: 'Excelから貼り付けて追加', wide: true, body: `
-    <p class="small">Excelで次の順に列を並べ、見出しを除いてコピーし、下に貼り付けてください。</p>
-    <div class="tbl"><table><thead><tr>${['大会名', '試合名', '試合日', 'キックオフ', '会場', 'チームA', 'チームB'].map((x) => `<th>${x}</th>`).join('')}</tr></thead><tbody><tr class="small muted"><td>北海道リーグ</td><td>第10節</td><td>2026/11/3</td><td>13:00</td><td>○○競技場</td><td>チームA</td><td>チームB</td></tr></tbody></table></div>
-    <textarea id="pt" style="min-height:200px" placeholder="ここに貼り付け" oninput="ptPreview()"></textarea><div id="pt-prev" class="small muted" style="margin-top:6px"></div><div id="pt-err" style="margin-top:8px"></div>`,
-    foot: `<button class="btn primary" onclick="cmPasteSave()">追加する</button>` });
+  PT = [];
+  openModal({ title: 'CSV・Excelから取り込み', wide: true, body: `
+    <p class="small" style="margin-top:0">次の列のCSVファイルを選ぶか、Excelで同じ列を並べてコピーし、下に貼り付けてください。1行目に見出し（大会名・試合日 など）があれば、列の順番は自由です。</p>
+    <div class="tbl"><table><thead><tr>${CM_COLS.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead><tbody><tr class="small muted"><td>北海道リーグ</td><td>第10節</td><td>2026/11/3</td><td>13:00</td><td>○○競技場</td><td>チームA</td><td>チームB</td></tr></tbody></table></div>
+    <div class="row" style="margin:10px 0"><label class="btn primary" style="cursor:pointer">CSVファイルを選ぶ<input type="file" accept=".csv,.txt,text/csv" onchange="ptFile(this)" hidden></label><button class="btn ghost" onclick="ptTemplate()">ひな形（CSV）をダウンロード</button></div>
+    <textarea id="pt" style="min-height:140px" placeholder="または、ここに貼り付け" oninput="ptRead(this.value)"></textarea>
+    <div id="pt-prev" style="margin-top:8px"></div><div id="pt-err" style="margin-top:8px"></div>`,
+    foot: `<button class="btn" onclick="closeModal()">やめる</button><button class="btn primary" id="pt-save" onclick="cmPasteSave()" disabled>追加する</button>` });
 }
-function ptRows() { return $('#pt').value.split(/\r?\n/).filter((l) => l.trim()).map((l) => { const c = l.split('\t').map((s) => s.trim()); return { comp: c[0], name: c[1], date: c[2], ko: c[3], venue: c[4], a: c[5], b: c[6] }; }); }
-function ptPreview() { const n = ptRows().length; $('#pt-prev').textContent = n ? n + '試合を読み取りました' : ''; }
+// CSV の1行をセルに分ける（"…" で囲まれたカンマ・改行にも対応）。タブ区切り（Excelからの貼り付け）も読む
+function ptParse(text) {
+  text = text.replace(/^﻿/, '');
+  const tab = text.split(/\r?\n/)[0].includes('\t'), sep = tab ? '\t' : ',', rows = [];
+  let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"' && cell === '') q = true;
+    else if (ch === sep) { row.push(cell.trim()); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell.trim()); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  if (cell !== '' || row.length) { row.push(cell.trim()); rows.push(row); }
+  return rows.filter((r) => r.some(Boolean));
+}
+function ptRead(text) {
+  const rows = ptParse(text || '');
+  // 1行目が見出しなら、見出しの名前で列を決める（「日付」「KO」「ホーム」なども読む）
+  const alias = { comp: /大会|リーグ/, name: /試合名|節|回戦/, date: /日付|試合日|^日$/, ko: /キックオフ|KO|開始|時刻|時間/i, venue: /会場|場所|グラウンド/, a: /チームA|ホーム|^A$/i, b: /チームB|アウェイ|^B$/i };
+  let idx = CM_COLS.map((c, i) => i);
+  if (rows.length && rows[0].some((x) => /大会|試合日|日付|会場|チーム/.test(x))) {
+    const hd = rows.shift();
+    idx = CM_COLS.map(([k]) => hd.findIndex((x) => alias[k].test(x)));
+  }
+  PT = rows.map((r) => { const o = {}; CM_COLS.forEach(([k], i) => { o[k] = idx[i] >= 0 ? (r[idx[i]] || '') : ''; }); return o; });
+  const bad = (o) => !o.comp || !o.date || !o.a || !o.b;
+  $('#pt-save').disabled = !PT.length;
+  $('#pt-err').innerHTML = '';
+  $('#pt-prev').innerHTML = PT.length ? `<div class="small b" style="margin-bottom:4px">${PT.length}試合を読み取りました${PT.some(bad) ? `<span class="red">（大会名・試合日・チームが空の行 ${PT.filter(bad).length}件）</span>` : ''}</div>
+    <div class="tbl" style="max-height:260px;overflow:auto"><table><thead><tr>${CM_COLS.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead><tbody>${PT.map((o) => `<tr class="${bad(o) ? 'warn' : ''}">${CM_COLS.map(([k]) => `<td class="small">${h(o[k]) || (['comp', 'date', 'a', 'b'].includes(k) ? '<span class="red">空</span>' : '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '';
+}
+// ファイルを読む：UTF-8 で読めなければ Shift_JIS（Excel で保存したCSV）として読む
+function ptFile(inp) {
+  const f = inp.files && inp.files[0]; if (!f) return;
+  f.arrayBuffer().then((buf) => {
+    let t; try { t = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { t = new TextDecoder('shift_jis').decode(buf); }
+    $('#pt').value = t; ptRead(t);
+  });
+  inp.value = '';
+}
+function ptTemplate() {
+  const csv = '﻿' + CM_COLS.map((c) => c[1]).join(',') + '\r\n北海道リーグ,第10節,2026/11/3,13:00,○○競技場,チームA,チームB\r\n';
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'matches_template.csv'; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
 async function cmPasteSave() {
-  const list = ptRows();
-  if (!list.length) return toast('貼り付けてください', true);
+  if (!PT.length) return toast('CSVを選ぶか貼り付けてください', true);
+  $('#pt-save').disabled = true;
   try {
-    const r = await call('api_saveMatches', list);
+    const r = await call('api_saveMatches', PT);
     if (r.errors.length) $('#pt-err').innerHTML = `<div class="errs"><b>追加できなかった行</b><ul>${r.errors.map((e) => `<li>${h(e)}</li>`).join('')}</ul></div>`;
-    toast(r.saved + '試合を追加しました');
-    if (!r.errors.length) { closeModal(); go('c_matches', CM.month); }
-  } catch (e) { fail(e); }
+    toast(r.saved + '試合を追加しました' + (r.skipped ? `（${r.skipped}試合は登録済みのため飛ばしました）` : ''));
+    const first = PT.map((o) => o.date).find(Boolean) || '';
+    const ym = (first.replace(/[年月\/.]/g, '-').match(/^(\d{4})-(\d{1,2})/) || []);
+    if (!r.errors.length) { closeModal(); go('c_matches', ym[1] ? ym[1] + '-' + ('0' + ym[2]).slice(-2) : CM.month); }
+    else $('#pt-save').disabled = false;
+  } catch (e) { $('#pt-save').disabled = false; fail(e); }
 }
 async function cmDelMatch(id) {
   if (!confirm('この試合を削除しますか？（稼働調査の回答と割当も削除されます）')) return;
