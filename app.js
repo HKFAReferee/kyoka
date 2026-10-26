@@ -260,14 +260,15 @@ async function mountPlayer(slot, elId, yt, opt = {}) {
   const el = document.getElementById(elId);
   if (!el) return;
   if (window.YT && window.YT.Player) {
-    const pv = { playsinline: 1, rel: 0, modestbranding: 1, iv_load_policy: 3 };
+    // origin：YouTube はどのサイトに埋め込まれているかを確かめる（分からないと「エラー153」で再生できない）
+    const pv = { playsinline: 1, rel: 0, modestbranding: 1, iv_load_policy: 3, origin: location.origin };
     // 試合映像のページは自前の操作バーを使うので、YouTube の操作バーは出さない
     if (opt.noControls) Object.assign(pv, { controls: 0, disablekb: 1, fs: 0 });
     if (opt.start) pv.start = opt.start;
     if (opt.end) pv.end = opt.end;
     PLAYERS[slot] = { yt: new YT.Player(elId, { videoId: yt, playerVars: pv, events: { onStateChange: (e) => opt.onState && opt.onState(e.data) } }), id: yt };
   } else {
-    el.innerHTML = `<iframe src="https://www.youtube.com/embed/${yt}?playsinline=1&start=${opt.start || 0}${opt.end ? '&end=' + opt.end : ''}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+    el.innerHTML = `<iframe src="https://www.youtube.com/embed/${yt}?playsinline=1&start=${opt.start || 0}${opt.end ? '&end=' + opt.end : ''}" allow="autoplay; encrypted-media" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
     PLAYERS[slot] = { el: el, id: yt };
   }
 }
@@ -278,18 +279,19 @@ function curTime(slot = 'main') { const p = PLAYERS[slot]; return p && p.yt && p
 function seek(sec, slot = 'main') {
   const p = PLAYERS[slot]; if (!p) return;
   if (p.yt && p.yt.seekTo) { p.yt.seekTo(sec, true); if (p.yt.playVideo) p.yt.playVideo(); }
-  else if (p.el) p.el.innerHTML = `<iframe src="https://www.youtube.com/embed/${p.id}?autoplay=1&playsinline=1&start=${sec}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+  else if (p.el) p.el.innerHTML = `<iframe src="https://www.youtube.com/embed/${p.id}?autoplay=1&playsinline=1&start=${sec}" allow="autoplay; encrypted-media" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
 }
 function pausePlayer(slot = 'main') { const p = PLAYERS[slot]; if (p && p.yt && p.yt.pauseVideo) p.yt.pauseVideo(); }
 
 /* 映像の下の操作バー：10秒戻る／再生・一時停止／10秒進む／再生速度（スロー） */
-const RATES = [0.25, 0.5, 1];
+const RATES = [0.25, 0.5, 1, 1.5, 2];
+const RATE_LABEL = { 0.25: '超スロー', 0.5: 'スロー', 1: '標準', 1.5: '1.5倍', 2: '2倍' };
 function playerBar(slot) {
   return `<div class="pbar" id="pbar-${slot}">
     <button onclick="skip(-10,'${slot}')" aria-label="10秒戻る">« 10秒</button>
     <button class="play" onclick="togglePlay('${slot}')" aria-label="再生・一時停止">▶ ／ ❚❚</button>
     <button onclick="skip(10,'${slot}')" aria-label="10秒進む">10秒 »</button>
-    <span class="rates">${RATES.map((r) => `<button data-r="${r}" class="${r === 1 ? 'on' : ''}" onclick="setRate(${r},'${slot}')">${r === 1 ? '標準' : r === 0.5 ? 'スロー' : '超スロー'}</button>`).join('')}</span>
+    <span class="rates">${RATES.map((r) => `<button data-r="${r}" class="${r === 1 ? 'on' : ''}" onclick="setRate(${r},'${slot}')">${RATE_LABEL[r]}</button>`).join('')}</span>
     ${slot === 'main' ? `<button class="fsbtn" onclick="playerFull()" aria-label="全画面">⛶ 全画面</button>` : ''}</div>`;
 }
 /* 全画面：映像・全体のバー・操作バーごと。使えない端末（iPhone）では画面いっぱいに広げる */
@@ -1052,7 +1054,7 @@ async function tlProbe() {
       let pl = null; const done = (v) => { clearTimeout(tm); try { pl && pl.destroy(); } catch (e) {} box.remove(); res(v); };
       const tm = setTimeout(() => done(0), 10000);
       const read = () => { const v = pl && pl.getDuration ? Math.round(pl.getDuration()) : 0; if (v > 0) done(v); return v > 0; };
-      pl = new YT.Player(el, { videoId: p.yt, playerVars: { mute: 1, playsinline: 1, controls: 0 },
+      pl = new YT.Player(el, { videoId: p.yt, playerVars: { mute: 1, playsinline: 1, controls: 0, origin: location.origin },
         events: { onReady: () => { if (!read()) { pl.mute(); pl.playVideo(); } }, onStateChange: (e) => { if (e.data === 1) read(); } } });
     });
     if (d > 0 && TL && TL.parts.includes(p)) tlSetDur(p, d);
