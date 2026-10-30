@@ -313,7 +313,7 @@ const RAIL_ICON = {
   play: '<path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/>', exit: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
 };
 function railBtn(icon, label, onclick, extra = '') {
-  return `<button class="rbtn" onclick="${onclick};pokeCtl()" ${extra}><span class="ri">${icon.startsWith('<') ? `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>` : icon}</span><span class="rl">${label}</span></button>`;
+  return `<button class="rbtn" onclick="${onclick};pokeCtl()" ${extra}><span class="ri">${!icon.startsWith('<b') ? `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>` : icon}</span><span class="rl">${label}</span></button>`;
 }
 function railsHtml() {
   return `<div class="prail left">${railBtn(RAIL_ICON.back, '10秒戻る', 'skip(-10)')}${railBtn(RAIL_ICON.play, '再生／停止', 'togglePlay()')}${railBtn(RAIL_ICON.fwd, '10秒進む', 'skip(10)')}</div>
