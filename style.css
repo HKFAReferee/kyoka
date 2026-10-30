@@ -273,6 +273,7 @@ tr.click:hover td{background:var(--pale)}
 /* 映像 */
 .player{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden}
 .player iframe,.player>div{position:absolute;inset:0;width:100%;height:100%}
+.player iframe{border:0}
 .vlayout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:20px}
 @media (max-width:1100px){.vlayout{grid-template-columns:1fr}}
 .clist{max-height:560px;overflow-y:auto}
@@ -537,3 +538,26 @@ body.pfull{overflow:hidden}
 .trow .t2 span{overflow-wrap:anywhere}
 .trow .t2 .blue{color:var(--ink);background:var(--yellow);padding:0 2px;border-radius:3px;font-weight:700;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 tr.warn td{background:#FDECEC}
+
+/* スマホを横にした全画面：映像の左右に丸いボタンの列（いつも表示）。タイムラインだけ映像の下に重ね、さわらなければ消す */
+.prail{display:none}
+@media (orientation:landscape) and (max-height:560px){
+  .pstick.fs{--rail:84px}
+  .pstick.fs .player{width:min(calc(100vw - var(--rail) * 2),calc(100vh * 16 / 9));width:min(calc(100vw - var(--rail) * 2),calc(100dvh * 16 / 9))}
+  .pstick.fs .prail{display:flex;flex-direction:column;justify-content:center;gap:14px;position:absolute;top:0;bottom:0;width:var(--rail);z-index:3;align-items:center;padding:8px 0}
+  .pstick.fs .prail.left{left:0;padding-left:env(safe-area-inset-left)}
+  .pstick.fs .prail.right{right:0;padding-right:env(safe-area-inset-right)}
+  .pstick.fs .pbar{display:none}
+  .pstick.fs .pctl{left:var(--rail);right:var(--rail);padding:6px 12px 8px;background:rgba(0,0,0,.55)}
+  .pstick.fs .tl{margin:0}
+}
+.rbtn{display:flex;flex-direction:column;align-items:center;gap:4px;background:none;border:none;color:#fff;font:500 11px 'Noto Sans JP',sans-serif;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent}
+.rbtn .ri{width:46px;height:46px;border-radius:12px;border:2px solid #fff;display:flex;align-items:center;justify-content:center;background:#0B0B0C}
+.rbtn:active .ri{background:#FFD400;color:#0B0B0C;border-color:#FFD400}
+.rbtn .ri b{font-size:12px;color:#FFD400;letter-spacing:-.02em}
+.rbtn .rl{white-space:nowrap;line-height:1.2}
+.rrate{position:relative}
+.rpop{display:none;position:absolute;right:calc(100% + 8px);top:50%;transform:translateY(-50%);flex-direction:column;gap:4px;background:rgba(11,11,12,.92);border:1px solid #3A3A40;border-radius:10px;padding:6px}
+.rrate.open .rpop{display:flex}
+.rpop button{background:none;border:1px solid #3A3A40;color:#fff;border-radius:8px;padding:8px 12px;font:700 13px 'Noto Sans JP',sans-serif;white-space:nowrap;cursor:pointer}
+.rpop button.on{background:#FFD400;color:#0B0B0C;border-color:#FFD400}

@@ -307,6 +307,20 @@ function playerFull() {
   if (req && document.fullscreenEnabled !== false) { try { const r = req.call(el); if (r && r.then) r.then(land, fallback); else land(); return; } catch (e) {} }
   fallback();
 }
+/* スマホを横にした全画面：映像の左右の余白に、丸いボタンを縦に並べる（左＝10秒戻る・再生・10秒進む、右＝速さ・元に戻す） */
+const RAIL_ICON = {
+  back: '<path d="M11 7 6 12l5 5M6 12h9a4 4 0 0 1 0 8h-2"/>', fwd: '<path d="m13 7 5 5-5 5M18 12H9a4 4 0 0 0 0 8h2"/>',
+  play: '<path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/>', exit: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+};
+function railBtn(icon, label, onclick, extra = '') {
+  return `<button class="rbtn" onclick="${onclick};pokeCtl()" ${extra}><span class="ri">${icon.startsWith('<') ? `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>` : icon}</span><span class="rl">${label}</span></button>`;
+}
+function railsHtml() {
+  return `<div class="prail left">${railBtn(RAIL_ICON.back, '10秒戻る', 'skip(-10)')}${railBtn(RAIL_ICON.play, '再生／停止', 'togglePlay()')}${railBtn(RAIL_ICON.fwd, '10秒進む', 'skip(10)')}</div>
+    <div class="prail right"><div class="rrate">${railBtn('<b id="rail-rate">1倍</b>', '速さ', "this.parentNode.classList.toggle('open')")}
+      <div class="rpop">${RATES.slice().reverse().map((r) => `<button data-r="${r}" class="${r === 1 ? 'on' : ''}" onclick="setRate(${r});this.closest('.rrate').classList.remove('open');pokeCtl()">${RATE_LABEL[r]}</button>`).join('')}</div></div>
+      ${railBtn(RAIL_ICON.exit, '元に戻す', 'playerFull()')}</div>`;
+}
 function fsOn() { return !!(document.fullscreenElement || document.webkitFullscreenElement || document.body.classList.contains('pfull')); }
 function fsLabel() {
   const b = $('.fsbtn'), el = $('.pstick'), on = fsOn();
@@ -340,6 +354,7 @@ function setRate(r, slot = 'main') {
   const y = ytOf(slot); if (!y) return;
   y.setPlaybackRate(r); if (slot === 'main' && TL) TL.rate = r;
   $$(`#pbar-${slot} .rates button`).forEach((b) => b.classList.toggle('on', Number(b.dataset.r) === r));
+  if (slot === 'main') { if ($('#rail-rate')) $('#rail-rate').textContent = r + '倍'; $$('.rpop button').forEach((b) => b.classList.toggle('on', Number(b.dataset.r) === r)); }
   if (y.getPlayerState() !== 1) y.playVideo();
 }
 // キーボード：← → で10秒、スペースで再生・一時停止（文字を入力中は効かない）
@@ -1124,7 +1139,7 @@ ROUTES.video = async (arg) => {
   const parts = VD.parts && VD.parts.length ? VD.parts : [v];
   const crew = B.consts.OFFICIAL_ROLES.map((r) => VD.crew[r].name ? `<span class="tag">${r}　${h(VD.crew[r].name)}</span>` : '').join('');
   setMain(`<div class="vlayout"><div class="vleft">
-      <div class="pstick"><div id="player-anchor" class="player"><div id="yt-main"></div><div class="ptap" onclick="tapCtl()" onpointermove="if(event.pointerType==='mouse')pokeCtl()"></div></div><div class="pctl" onpointerdown="pokeCtl()">${tlBarHtml()}${playerBar('main')}</div></div>
+      <div class="pstick"><div id="player-anchor" class="player"><div id="yt-main"></div><div class="ptap" onclick="tapCtl()" onpointermove="if(event.pointerType==='mouse')pokeCtl()"></div></div><div class="pctl" onpointerdown="pokeCtl()">${tlBarHtml()}${playerBar('main')}</div>${railsHtml()}</div>
       <div style="margin:12px 0"><div class="b" style="font-size:17px">${card(m)}</div><div class="small muted">${dl(m.date)} ${h(m.ko)}　${h(m.comp)} ${h(m.name)}／${h(m.venue)}／${h(v.team)}提供${v.by ? `（${h(v.by)}さんが登録）` : ''}</div>
       <div id="parts" style="margin-top:6px"></div>
       ${VD.others.length || (VD.veo || []).length ? `<div style="margin-top:6px">${VD.others.map((o) => `<button class="btn sm" onclick="go('video','${o.id}')">${h(o.team)}提供の映像に切り替え</button>`).join(' ')} ${(VD.veo || []).map((o) => veoBtn(o, `Veoで見る（${h(o.team)}提供・${h(o.part)}）`)).join(' ')}</div>` : ''}
