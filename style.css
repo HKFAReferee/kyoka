@@ -545,7 +545,7 @@ tr.warn td{background:#FDECEC}
   .pstick.fs{--rail:84px}
   /* 画面の高さは全画面の枠（cqh）で測る。iPhone では 100dvh がブラウザのバーの分だけ小さくなり、映像が小さく下に寄るため */
   .pstick.fs .player{width:min(calc(100vw - var(--rail) * 2),calc(100vh * 16 / 9));width:min(calc(100cqw - var(--rail) * 2),calc(100cqh * 16 / 9))}
-  .pstick.fs .prail{display:flex;flex-direction:column;justify-content:center;gap:14px;position:absolute;top:0;bottom:0;width:var(--rail);z-index:3;align-items:center;padding:8px 0}
+  .pstick.fs .prail{display:flex;flex-direction:column;justify-content:center;gap:8px;position:absolute;top:0;bottom:0;width:var(--rail);z-index:3;align-items:center;padding:8px 0}
   .pstick.fs .prail.left{left:0;padding-left:env(safe-area-inset-left)}
   .pstick.fs .prail.right{right:0;padding-right:env(safe-area-inset-right)}
   .pstick.fs .pbar{display:none}
@@ -562,3 +562,5 @@ tr.warn td{background:#FDECEC}
 .rrate.open .rpop{display:flex}
 .rpop button{background:none;border:1px solid #3A3A40;color:#fff;border-radius:8px;padding:8px 12px;font:700 13px 'Noto Sans JP',sans-serif;white-space:nowrap;cursor:pointer}
 .rpop button.on{background:#FFD400;color:#0B0B0C;border-color:#FFD400}
+@media (orientation:landscape) and (max-height:560px){.pstick.fs .prail.left .rbtn .ri{width:40px;height:40px;border-radius:10px}.pstick.fs .prail.left .rbtn{gap:2px}}
+@media (max-height:340px){.pstick.fs .prail.left .rl{display:none}}

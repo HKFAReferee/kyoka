@@ -291,6 +291,8 @@ function playerBar(slot) {
     <button onclick="skip(-10,'${slot}')" aria-label="10秒戻る">« 10秒</button>
     <button class="play" onclick="togglePlay('${slot}')" aria-label="再生・一時停止">▶ ／ ❚❚</button>
     <button onclick="skip(10,'${slot}')" aria-label="10秒進む">10秒 »</button>
+    <button class="frame" onclick="frameStep(-1,'${slot}')" aria-label="1コマ戻る">◀ コマ</button>
+    <button class="frame" onclick="frameStep(1,'${slot}')" aria-label="1コマ進む">コマ ▶</button>
     <span class="rates">${RATES.map((r) => `<button data-r="${r}" class="${r === 1 ? 'on' : ''}" onclick="setRate(${r},'${slot}')">${RATE_LABEL[r]}</button>`).join('')}</span>
     ${slot === 'main' ? `<button class="fsbtn" onclick="playerFull()" aria-label="全画面">⛶ 全画面</button>` : ''}</div>`;
 }
@@ -307,16 +309,17 @@ function playerFull() {
   if (req && document.fullscreenEnabled !== false) { try { const r = req.call(el); if (r && r.then) r.then(land, fallback); else land(); return; } catch (e) {} }
   fallback();
 }
-/* スマホを横にした全画面：映像の左右の余白に、丸いボタンを縦に並べる（左＝10秒戻る・再生・10秒進む、右＝速さ・元に戻す） */
+/* スマホを横にした全画面：映像の左右の余白に、丸いボタンを縦に並べる（左＝10秒・コマ送り・再生、右＝速さ・元に戻す） */
 const RAIL_ICON = {
   back: '<path d="M11 7 6 12l5 5M6 12h9a4 4 0 0 1 0 8h-2"/>', fwd: '<path d="m13 7 5 5-5 5M18 12H9a4 4 0 0 0 0 8h2"/>',
-  play: '<path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/>', exit: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+  play: '<path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/>',
+  fback: '<path d="M7 6v12"/><path d="M18 6l-8 6 8 6z" fill="currentColor"/>', ffwd: '<path d="M17 6v12"/><path d="M6 6l8 6-8 6z" fill="currentColor"/>', exit: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
 };
 function railBtn(icon, label, onclick, extra = '') {
   return `<button class="rbtn" onclick="${onclick};pokeCtl()" ${extra}><span class="ri">${!icon.startsWith('<b') ? `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>` : icon}</span><span class="rl">${label}</span></button>`;
 }
 function railsHtml() {
-  return `<div class="prail left">${railBtn(RAIL_ICON.back, '10秒戻る', 'skip(-10)')}${railBtn(RAIL_ICON.play, '再生／停止', 'togglePlay()')}${railBtn(RAIL_ICON.fwd, '10秒進む', 'skip(10)')}</div>
+  return `<div class="prail left">${railBtn(RAIL_ICON.back, '10秒戻る', 'skip(-10)')}${railBtn(RAIL_ICON.fback, '1コマ戻る', 'frameStep(-1)')}${railBtn(RAIL_ICON.play, '再生／停止', 'togglePlay()')}${railBtn(RAIL_ICON.ffwd, '1コマ進む', 'frameStep(1)')}${railBtn(RAIL_ICON.fwd, '10秒進む', 'skip(10)')}</div>
     <div class="prail right"><div class="rrate">${railBtn('<b id="rail-rate">1倍</b>', '速さ', "this.parentNode.classList.toggle('open')")}
       <div class="rpop">${RATES.slice().reverse().map((r) => `<button data-r="${r}" class="${r === 1 ? 'on' : ''}" onclick="setRate(${r});this.closest('.rrate').classList.remove('open');pokeCtl()">${RATE_LABEL[r]}</button>`).join('')}</div></div>
       ${railBtn(RAIL_ICON.exit, '元に戻す', 'playerFull()')}</div>`;
@@ -349,6 +352,16 @@ function skip(sec, slot = 'main') {
   if (slot === 'main' && TL) { const t = nowT(); if (t !== null) return seekT(Math.max(0, Math.min(t + sec, tlTotal() || Infinity))); }
   y.seekTo(Math.max(0, y.getCurrentTime() + sec), true);
 }
+// コマ送り：一時停止して約1コマ（1/30秒）ずつ動かす。YouTube に本当のコマ送りはないので近いもの。続けて押したときは前の位置から数える
+let FRAME = { t: 0, at: 0, slot: '' };
+function frameStep(dir, slot = 'main') {
+  const y = ytOf(slot); if (!y) return;
+  if (y.getPlayerState() === 1) y.pauseVideo();
+  const base = FRAME.slot === slot && Date.now() - FRAME.at < 1500 ? FRAME.t : y.getCurrentTime();
+  const t = Math.max(0, base + dir / 30);
+  FRAME = { t, at: Date.now(), slot };
+  y.seekTo(t, true);
+}
 function togglePlay(slot = 'main') { const y = ytOf(slot); if (!y) return; if (y.getPlayerState() === 1) y.pauseVideo(); else y.playVideo(); }
 function setRate(r, slot = 'main') {
   const y = ytOf(slot); if (!y) return;
@@ -357,13 +370,15 @@ function setRate(r, slot = 'main') {
   if (slot === 'main') { if ($('#rail-rate')) $('#rail-rate').textContent = r + '倍'; $$('.rpop button').forEach((b) => b.classList.toggle('on', Number(b.dataset.r) === r)); }
   if (y.getPlayerState() !== 1) y.playVideo();
 }
-// キーボード：← → で10秒、スペースで再生・一時停止（文字を入力中は効かない）
+// キーボード：← → で10秒、, . でコマ送り（YouTube と同じ）、スペースで再生・一時停止（文字を入力中は効かない）
 document.addEventListener('keydown', (e) => {
   if (/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '')) return;
   const slot = !$('#modal').hidden && PLAYERS.modal ? 'modal' : PLAYERS.main ? 'main' : '';
   if (!slot) return;
   if (e.key === 'ArrowLeft') { skip(-10, slot); e.preventDefault(); }
   else if (e.key === 'ArrowRight') { skip(10, slot); e.preventDefault(); }
+  else if (e.key === ',') { frameStep(-1, slot); e.preventDefault(); }
+  else if (e.key === '.') { frameStep(1, slot); e.preventDefault(); }
   else if (e.key === ' ') { togglePlay(slot); e.preventDefault(); }
 });
 
