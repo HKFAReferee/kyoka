@@ -564,3 +564,5 @@ tr.warn td{background:#FDECEC}
 .rpop button.on{background:#FFD400;color:#0B0B0C;border-color:#FFD400}
 @media (orientation:landscape) and (max-height:560px){.pstick.fs .prail.left .rbtn .ri{width:40px;height:40px;border-radius:10px}.pstick.fs .prail.left .rbtn{gap:2px}}
 @media (max-height:340px){.pstick.fs .prail.left .rl{display:none}}
+/* ボタンを続けて押したとき（コマ送りなど）に、スマホのダブルタップで拡大されないように */
+button,a,label,select,input,.ptap,.pstick,.prail{touch-action:manipulation}
