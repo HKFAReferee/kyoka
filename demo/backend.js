@@ -60,7 +60,7 @@ const SHEETS = {
   '地区協会':   ['協会名', '担当者', 'メール'],
   '会場':       ['会場名', '所在地', '地区協会'],
   'チーム':     ['チーム名', '担当者', 'メール', 'トークン', '所属リーグ'],
-  '月管理':     ['対象月', '一覧公開日時', '割当公開日時'],
+  '月管理':     ['対象月', '一覧公開日時', '割当公開日時', '回答締切'],
   '試合':       ['試合ID', '対象月', '大会名', '試合名', '試合日', 'キックオフ', '会場', 'チームA', 'チームB'],
   '稼働調査':   ['試合ID', 'メンバーID', '回答', '備考', '回答日時'],
   '割当':       ['割当ID', '試合ID', '役割', '区分', 'メンバーID', '派遣者氏名', '派遣者所属', '依頼先協会', '通知済ID', '更新日時'],
@@ -301,7 +301,11 @@ function addMonth_(ym, n) {
   return y + '-' + (m < 10 ? '0' : '') + m;
 }
 function lastDay_(ym) { return new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate(); }
-function surveyDeadline_(ym) { return addMonth_(ym, -1) + '-15'; } // この日まで回答できる
+// この日まで回答できる。ふだんは前月15日。委員会が月ごとに変えたとき（月管理の「回答締切」）はその日
+function surveyDeadline_(ym) {
+  const r = monthRow_(ym), d = r ? String(r['回答締切'] || '').trim() : '';
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : addMonth_(ym, -1) + '-15';
+}
 function len_(s) { return Array.from(String(s || '')).length; }
 function num_(v) { const n = Number(v); return (v === '' || v === null || v === undefined || isNaN(n)) ? null : n; }
 function dayDiff_(a, b) { return Math.abs((Date.parse(a) - Date.parse(b)) / 86400000); }
@@ -632,7 +636,8 @@ function openSurveyMonth_() {
   const today = today_();
   const months = rows_('月管理').filter(function (r) { return r['一覧公開日時']; }).map(function (r) { return r['対象月']; }).sort();
   const open = months.filter(function (ym) { return today <= surveyDeadline_(ym); });
-  return { open: open.length ? open[open.length - 1] : '', latest: months.length ? months[months.length - 1] : '' };
+  // 回答できる月が2つ以上あるとき（締切を延ばした月など）は、早い月から
+  return { open: open.length ? open[0] : '', openList: open, latest: months.length ? months[months.length - 1] : '' };
 }
 
 function api_survey(t, ym) {
@@ -647,7 +652,7 @@ function api_survey(t, ym) {
     v.ans = a ? a['回答'] : ''; v.note = a ? a['備考'] : '';
     return v;
   }).sort(sortByDate_);
-  return { month: month, open: today_() <= surveyDeadline_(month), deadline: surveyDeadline_(month), matches: matches };
+  return { month: month, open: today_() <= surveyDeadline_(month), deadline: surveyDeadline_(month), matches: matches, openMonths: o.openList };
 }
 
 function api_saveSurvey(t, ym, answers) {
@@ -1048,6 +1053,13 @@ function api_deleteMatch(t, id) {
   });
 }
 
+// 回答締切を月ごとに変える（延長・テスト用）。空にすると前月15日に戻る
+function api_setDeadline(t, ym, date) {
+  const c = ctx_(t); need_(c, 'com');
+  const d = date ? normDate_(date) : '';
+  if (date && !d) throw new Error('日付を選んでください。');
+  return withLock_(function () { setMonth_(ym, '回答締切', d); return { deadline: surveyDeadline_(ym) }; });
+}
 function api_publishList(t, ym) {
   const c = ctx_(t); need_(c, 'com');
   if (!rows_('試合').some(function (r) { return r['対象月'] === ym; })) throw new Error('試合が登録されていません。');

@@ -454,7 +454,8 @@ ROUTES.survey = async (ym) => {
   if (!SV.month || !SV.matches.length) return setMain(empty('いま回答できる稼働調査はありません。<br>毎月10日に翌月の試合一覧が公開され、メールでお知らせします。'));
   head(ymLabel(SV.month) + 'の稼働調査');
   const left = daysLeft(SV.deadline);
-  setMain(`<div class="card ${SV.open ? 'pale' : ''}">
+  const om = SV.openMonths || [];
+  setMain(`${om.length > 1 ? `<div style="margin-bottom:12px">${om.map((m) => `<button class="chip ${m === SV.month ? 'on' : ''}" onclick="go('survey','${m}')">${ymLabel(m)}</button>`).join('')}</div>` : ''}<div class="card ${SV.open ? 'pale' : ''}">
       <div class="row"><div><div class="small muted">締切</div><div class="b">${dl(SV.deadline)}${SV.open ? `　<span class="${left <= 2 ? 'red' : 'blue'}">${left === 0 ? '今日まで' : 'あと' + left + '日'}</span>` : '　<span class="red">締切済み（変更は委員会へ連絡）</span>'}</div></div>
       <span class="spacer"></span><div style="text-align:right"><div class="small muted">回答</div><div class="b" id="sv-count"></div></div></div>
       <div class="bar"><i id="sv-bar"></i></div>
@@ -1681,7 +1682,7 @@ ROUTES.c_matches = async (ym) => {
     <div class="card ${CM.listPublished ? 'pale' : (CM.matches.length ? 'warn' : '')}"><div class="row">
       <div style="flex:1;min-width:200px">${CM.listPublished ? `<div class="b blue">一覧を公開済み・稼働調査の受付中</div><div class="small muted">締切 ${dl(CM.deadline)}。試合を追加・変更したときは、必要なら回答依頼を再送してください。</div>`
         : `<div class="b">${CM.matches.length ? 'まだ公開していません' : '試合を登録してください'}</div><div class="small muted">公開すると全強化審判員に稼働調査の回答依頼メールが届きます。毎月10日の朝、翌月の一覧が未公開なら自動で公開されます。</div>`}</div>
-      <button class="btn ${CM.listPublished ? '' : 'primary'}" onclick="cmPublish()" ${CM.matches.length ? '' : 'disabled'}>${CM.listPublished ? '回答依頼を再送' : '公開して回答依頼'}</button></div></div>
+      <button class="btn sm ghost" onclick="cmDeadline()">締切を変更</button><button class="btn ${CM.listPublished ? '' : 'primary'}" onclick="cmPublish()" ${CM.matches.length ? '' : 'disabled'}>${CM.listPublished ? '回答依頼を再送' : '公開して回答依頼'}</button></div></div>
     ${noVenue ? `<div class="card warn small"><span class="red b">会場マスタにない会場が ${noVenue}件 あります。</span>派遣依頼の宛先が決まらないため、マスタの「会場」に登録してください。</div>` : ''}
     <div class="row" style="margin:20px 0 10px"><h2 style="margin:0">${CM.matches.length}試合</h2><span class="spacer"></span><button class="btn" onclick="cmPaste()">CSV・Excelから取り込み</button><button class="btn primary" onclick="cmEdit(-1)">＋ 試合を追加</button></div>
     ${CM.matches.length ? Object.keys(byDate).sort().map((d) => `<div class="flabel" style="margin-top:12px">${dl(d)}</div><div class="list">${byDate[d].map(([m, i]) =>
@@ -1845,6 +1846,15 @@ async function cmPasteSave() {
 async function cmDelMatch(id) {
   if (!confirm('この試合を削除しますか？（稼働調査の回答と割当も削除されます）')) return;
   try { await call('api_deleteMatch', id); toast('削除しました'); closeModal(); go('c_matches', CM.month); } catch (e) { fail(e); }
+}
+// 回答締切の変更（延長したいとき・締切を過ぎた月でテストしたいとき）
+function cmDeadline() {
+  openModal({ title: ymLabel(CM.month) + 'の回答締切', body: `<p class="small" style="margin-top:0">ふだんは前月15日です。延長したいときや、締切を過ぎた月で試したいときに変えます。締切までは審判員が回答・変更できます。</p>
+    <div class="field"><label>回答締切（この日まで回答できる）</label><input type="date" id="dl-date" value="${h(CM.deadline)}"></div>`,
+    foot: `<button class="btn" onclick="cmDeadlineSave('')">前月15日に戻す</button><button class="btn primary" onclick="cmDeadlineSave($('#dl-date').value)">保存</button>` });
+}
+async function cmDeadlineSave(d) {
+  try { const r = await call('api_setDeadline', CM.month, d); toast('締切を ' + dl(r.deadline) + ' にしました'); closeModal(); go('c_matches', CM.month); } catch (e) { fail(e); }
 }
 async function cmPublish() {
   if (!confirm(`${ymLabel(CM.month)}の試合一覧を公開し、全強化審判員に稼働調査の回答依頼メールを送ります。よろしいですか？`)) return;
