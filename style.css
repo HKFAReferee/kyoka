@@ -566,3 +566,10 @@ tr.warn td{background:#FDECEC}
 @media (max-height:340px){.pstick.fs .prail.left .rl{display:none}}
 /* ボタンを続けて押したとき（コマ送りなど）に、スマホのダブルタップで拡大されないように */
 button,a,label,select,input,.ptap,.pstick,.prail{touch-action:manipulation}
+
+/* レポート：審判員の自己評価（Excelから取り込み） */
+details.selfbox{margin:8px 0 10px;border:1px dashed var(--line);border-radius:8px;padding:6px 10px;background:var(--bg)}
+details.selfbox summary,details.selfcard summary{cursor:pointer;font-size:13px;color:var(--gray)}
+details.selfbox[open] summary{margin-bottom:6px}
+.selfro{background:var(--bg);border-radius:8px;padding:8px 10px;margin-top:6px}
+.selfro .pre{margin:2px 0 6px}

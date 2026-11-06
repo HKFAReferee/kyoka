@@ -102,7 +102,8 @@ const RANGES = {
   '普通': { 'やさしい': [7.5, 7.9], 'ふつう': [8.0, 8.4], 'むずかしい': [8.5, 8.9] },
   '悪い': { 'やさしい': [7.0, 7.4], 'ふつう': [7.5, 7.9], 'むずかしい': [7.5, 8.4] },
 };
-const LIMITS = { good: 350, bad: 350, ar: 350, advice: 350, reason: 150, note: 350, ops: 150, ki: 100, fourth: 200 };
+// 主審の各項目は「評価（良い・普通・悪い）＋アドバイス（item）」。good・bad は以前の様式（読むだけ）。self は審判員の自己評価（Excelから取り込み）
+const LIMITS = { good: 350, bad: 350, item: 350, ar: 350, advice: 1000, reason: 150, note: 350, ops: 150, ki: 100, fourth: 200, self: 1000 };
 
 /* ───────── API（画面はGitHub Pages、ここはデータの出し入れだけ） ─────────
  * 画面から POST {fn, t, args} を受け取り、api_ で始まる関数だけを実行して JSON を返す。
@@ -833,7 +834,12 @@ function validateReport_(data, crew) {
     if (!crew[role].evaluated) return;
     const x = s[role] || {};
     const items = x.items || {};
-    if (role === '主審') REF_ITEMS.forEach(function (it) { lim((items[it.k] || {}).good, LIMITS.good, role + ' ' + it.k + ' 良かった点'); lim((items[it.k] || {}).bad, LIMITS.bad, role + ' ' + it.k + ' 課題点'); });
+    if (role === '主審') REF_ITEMS.forEach(function (it) { lim((items[it.k] || {}).advice, LIMITS.item, role + ' ' + it.k + ' アドバイス'); lim((items[it.k] || {}).good, LIMITS.good, role + ' ' + it.k + ' 良かった点'); lim((items[it.k] || {}).bad, LIMITS.bad, role + ' ' + it.k + ' 課題点'); });
+    if (role === '主審' && x.self) {
+      const sf = x.self;
+      ['challenge', 'impression', 'past', 'review'].forEach(function (k) { lim(sf[k], LIMITS.self, '主審 自己評価'); });
+      REF_ITEMS.forEach(function (it) { lim(((sf.items || {})[it.k] || {}).text, LIMITS.self, '主審 ' + it.k + ' 理由と課題'); });
+    }
     else AR_ITEMS.forEach(function (it) { lim(items[it.k], LIMITS.ar, role + ' ' + it.k); });
     if (role === '主審') lim(x.advice, LIMITS.advice, '主審 アドバイス');
     lim(x.reason, LIMITS.reason, role + ' 難易度の理由');

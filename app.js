@@ -557,12 +557,19 @@ function sectionRO(role, sec, crewName) {
   if (role === '第4審') return `<h2 style="margin-top:0">${label}　<span class="muted" style="font-weight:400">${h(crewName || '')}</span></h2><p class="pre">${h(sec.comment || '（記載なし）')}</p>`;
   const items = role === '主審' ? C.REF_ITEMS : C.AR_ITEMS;
   const it = sec.items || {};
+  const sf = sec.self || {}, si = sf.items || {};
   const body = items.map((x) => role === '主審'
-    ? `<div class="item"><div class="ttl">${x.k}　${h(x.t)}</div><div class="grid2" style="margin-top:6px"><div><div class="flabel">良かった点</div><p class="pre">${h((it[x.k] || {}).good || '—')}</p></div><div><div class="flabel">課題点</div><p class="pre">${h((it[x.k] || {}).bad || '—')}</p></div></div></div>`
+    ? `<div class="item"><div class="ttl">${x.k}　${h(x.t)}</div>
+      ${(si[x.k] || {}).grade || (si[x.k] || {}).text ? `<div class="selfro"><div class="flabel">審判員の自己評価${(si[x.k] || {}).grade ? `　<b>${h(si[x.k].grade)}</b>` : ''}</div>${(si[x.k] || {}).text ? `<p class="pre">${h(si[x.k].text)}</p>` : ''}</div>` : ''}
+      ${(it[x.k] || {}).good || (it[x.k] || {}).bad ? `<div class="grid2" style="margin-top:6px"><div><div class="flabel">良かった点</div><p class="pre">${h((it[x.k] || {}).good || '—')}</p></div><div><div class="flabel">課題点</div><p class="pre">${h((it[x.k] || {}).bad || '—')}</p></div></div>`
+        : `<div style="margin-top:6px"><div class="flabel">アセッサーの評価${(it[x.k] || {}).eval ? `　<b>${h(it[x.k].eval)}</b>` : ''}</div><p class="pre">${h((it[x.k] || {}).advice || '—')}</p></div>`}</div>`
     : `<div class="item"><div class="ttl">${x.k}　${h(x.t)}</div><p class="pre" style="margin-top:6px">${h(it[x.k] || '—')}</p></div>`).join('');
   const hasEx = sec.exception !== '' && sec.exception !== undefined && sec.exception !== null;
   const ad = hasEx ? sec.exception : sec.score;
-  return `<h2 style="margin-top:0">${label}　<span class="muted" style="font-weight:400">${h(crewName || '')}</span></h2>
+  const selfTop = role === '主審' && (sf.challenge || sf.achieve || sf.impression || sf.past || sf.review)
+    ? `<div class="selfro" style="margin-bottom:12px"><div class="ttl" style="margin-bottom:4px">審判員の自己評価</div>
+      ${[['この試合でのチャレンジ', sf.challenge], ['達成度', sf.achieve], ['終了後の感想', sf.impression], ['過去3試合の指摘事項で改善できていないこと', sf.past], ['振り返り', sf.review]].filter((x) => x[1]).map((x) => `<div class="flabel">${x[0]}</div><p class="pre">${h(x[1])}</p>`).join('')}</div>` : '';
+  return `<h2 style="margin-top:0">${label}　<span class="muted" style="font-weight:400">${h(crewName || '')}</span></h2>${selfTop}
     <div class="row" style="gap:24px;margin:0 0 12px"><div><div class="small muted">評価点</div><div class="bigscore">${ad !== undefined && ad !== '' ? Number(ad).toFixed(1) : '—'}</div></div>
     <dl class="kv"><dt>難易度</dt><dd>${h(sec.diff || '—')}</dd><dt>全体のパフォーマンス</dt><dd>${h(sec.perf || '—')}</dd>${hasEx ? `<dt>例外の評価点</dt><dd>${h(sec.exception)}</dd>` : ''}</dl></div>
     ${body}
@@ -710,7 +717,7 @@ function getPath(o, p) { return p.split('.').reduce((a, k) => (a == null ? undef
 function setPath(o, p, v) { const ks = p.split('.'); let a = o; ks.slice(0, -1).forEach((k) => { if (a[k] == null || typeof a[k] !== 'object') a[k] = {}; a = a[k]; }); a[ks[ks.length - 1]] = v; }
 function ta(path, max, ph, rows) { return `<textarea data-k="${path}" data-max="${max}" oninput="cnt(this);rpDirty()" placeholder="${h(ph || '')}" ${rows ? `style="min-height:${rows}px"` : ''}></textarea><span class="count">0／${max}字</span>`; }
 function cnt(el) { const n = Array.from(el.value).length, max = Number(el.dataset.max); const c = el.nextElementSibling; if (!c) return; c.textContent = n + '／' + max + '字'; c.classList.toggle('over', n > max); }
-const DIFFS = ['やさしい', 'ふつう', 'むずかしい'], PERFS = ['良い', '普通', '悪い'];
+const DIFFS = ['やさしい', 'ふつう', 'むずかしい'], PERFS = ['良い', '普通', '悪い'], GRADES = ['A', 'B', 'C', 'D', 'E'];
 
 function segPick(key, list, cur, onpick) {
   return `<input type="hidden" data-k="${key}" value="${h(cur || '')}"><div class="seg sm" data-seg="${key}">${list.map((v) => `<button type="button" class="${v === cur ? 'on' : ''}" onclick="segSet('${key}','${v}');${onpick || ''}">${v}</button>`).join('')}</div>`;
@@ -747,11 +754,20 @@ function roleForm(role, crew) {
   const C = B.consts, L = C.LIMITS;
   const who = `<div class="card pale" style="margin-bottom:16px"><div class="small muted">${role === '第4審' ? '第4の審判員' : role}</div><div class="b" style="font-size:17px">${h(crew.name)}${crew.affil ? `<span class="small muted" style="font-weight:400">（${h(crew.affil)}）</span>` : ''}</div></div>`;
   if (role === '第4審') return who + `<div class="field"><label>コメント・アドバイス</label>${ta('s.第4審.comment', L.fourth, '', 160)}</div>`;
+  // 主審の各項目：審判員の自己評価（A〜E・理由と課題。Excelから取り込める）と、アセッサーの評価（良い・普通・悪い）＋アドバイス
   const items = role === '主審'
     ? C.REF_ITEMS.map((x) => `<div class="item"><div class="ttl">${x.k}　${h(x.t)}</div><div class="desc">${h(x.d)}</div>
-        <div class="grid2"><div class="field"><label>良かった点</label>${ta(`s.${role}.items.${x.k}.good`, L.good)}</div><div class="field"><label>課題点</label>${ta(`s.${role}.items.${x.k}.bad`, L.bad)}</div></div></div>`).join('')
+        <details class="selfbox" data-self="${x.k}"><summary>審判員の自己評価</summary><div class="field"><label>自己評価</label>${segPick(`s.${role}.self.items.${x.k}.grade`, GRADES)}</div><div class="field"><label>理由と課題</label>${ta(`s.${role}.self.items.${x.k}.text`, L.self)}</div></details>
+        <div class="field"><label>評価</label>${segPick(`s.${role}.items.${x.k}.eval`, PERFS)}</div>
+        <div class="field"><label>アドバイス</label>${ta(`s.${role}.items.${x.k}.advice`, L.item)}</div></div>`).join('')
     : C.AR_ITEMS.map((x) => `<div class="item"><div class="ttl">${x.k}　${h(x.t)}</div><div class="field" style="margin-top:6px"><label>良かった点、課題点、アドバイス</label>${ta(`s.${role}.items.${x.k}`, L.ar)}</div></div>`).join('');
-  return who + `<div class="card">${items}</div>
+  const self = role === '主審' ? `<details class="card selfcard" data-self="top"><summary><b>審判員の自己評価</b><span class="small muted">　チャレンジ・達成度・振り返りなど（Excelから取り込めます）</span></summary>
+      <div class="field" style="margin-top:12px"><label>この試合でのチャレンジ</label>${ta(`s.${role}.self.challenge`, L.self)}</div>
+      <div class="field"><label>達成度</label>${segPick(`s.${role}.self.achieve`, GRADES)}</div>
+      <div class="field"><label>終了後の感想</label>${ta(`s.${role}.self.impression`, L.self)}</div>
+      <div class="field"><label>過去3試合の指摘事項で改善できていないこと</label>${ta(`s.${role}.self.past`, L.self)}</div>
+      <div class="field"><label>振り返り</label>${ta(`s.${role}.self.review`, L.self)}</div></details>` : '';
+  return who + self + `<div class="card">${items}</div>
     <div class="card blue"><h2>総合評価</h2>
       <div class="grid2"><div class="field"><label>難易度</label>${segPick(`s.${role}.diff`, DIFFS, '', `scorePick('${role}')`)}</div>
       <div class="field"><label>全体のパフォーマンス</label>${segPick(`s.${role}.perf`, PERFS, '', `scorePick('${role}')`)}</div></div>
@@ -764,6 +780,130 @@ function roleForm(role, crew) {
     </div>`;
 }
 
+/* ───────── レポート：Excelから取り込み ─────────
+   ・アセスメントレポート（シート「共通」＋「主審」などの分析・評価シート）
+   ・JFAプール審判員 自己分析＆目標達成シート（1枚に2試合。試合日が同じ欄の Coach コメントと自己分析）
+   読み取った内容を確認してから、入力欄に入れる（提出はいつもどおり画面から） */
+let RX = null;
+function loadXLSX() {
+  if (window.XLSX) return Promise.resolve();
+  return new Promise((ok, ng) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = ok; sc.onerror = () => ng(new Error('Excelを読む部品を読み込めませんでした。通信状態を確認してください。')); document.head.appendChild(sc); });
+}
+function rxOpen() {
+  RX = null;
+  openModal({ title: 'Excelから取り込み', body: `
+    <p class="small" style="margin-top:0">記入済みのExcelを選ぶと、読み取った内容を確認してから入力欄に入れます。入れたあとも画面で直せます。</p>
+    <ul class="small muted" style="padding-left:18px;margin:0 0 12px"><li>アセスメントレポート（シート「共通」と、主審の「レフェリング分析・評価シート」）</li><li>JFAプール審判員 自己分析＆目標達成シート（この試合と同じ試合日の欄を読みます）</li></ul>
+    <label class="btn primary" style="cursor:pointer">Excelファイルを選ぶ<input type="file" accept=".xlsx,.xlsm,.xls" onchange="rxFile(this)" hidden></label>
+    <div id="rx-prev" style="margin-top:12px"></div>`,
+    foot: `<button class="btn" onclick="closeModal()">やめる</button><button class="btn primary" id="rx-ok" onclick="rxApply()" disabled>入力欄に入れる</button>` });
+}
+async function rxFile(inp) {
+  const f = inp.files && inp.files[0]; inp.value = ''; if (!f) return;
+  $('#rx-prev').innerHTML = '<p class="loading">読み取り中…</p>';
+  try {
+    await loadXLSX();
+    const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
+    RX = wb.Sheets['共通'] ? rxReport(wb) : rxPool(wb);
+    rxPreview();
+  } catch (e) { RX = null; $('#rx-prev').innerHTML = `<div class="errs">${h(e.message || String(e))}</div>`; $('#rx-ok').disabled = true; }
+}
+// セルの値：文字は前後の空白を落とす。「**」や数式の結果の 0 以外はそのまま
+function rxv(ws, a) { const c = ws && ws[a]; if (!c || c.v === undefined || c.v === null) return ''; return c.v instanceof Date ? c.v : typeof c.v === 'string' ? c.v.trim() : c.v; }
+function rxDate(v) { if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`; const m = String(v || '').match(/(\d{4})[\/\-.年](\d{1,2})[\/\-.月](\d{1,2})/); return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : ''; }
+function rxNum(v) { return typeof v === 'number' ? String(v) : /^\d+(\.\d+)?$/.test(String(v)) ? String(v) : ''; }
+function rxText(v) { return v instanceof Date ? rxDate(v) : String(v === undefined || v === null ? '' : v).replace(/\r\n?/g, '\n').trim(); }
+// アセスメントレポート
+function rxReport(wb) {
+  const c = wb.Sheets['共通'], d = {}, notes = [];
+  const set = (k, v) => { if (v !== '' && v !== undefined && v !== null) setPath(d, k, v); };
+  set('info.date', rxDate(rxv(c, 'R4'))); set('info.time', rxNum(rxv(c, 'R5')));
+  const ext = rxNum(rxv(c, 'Y5')); if (ext && Number(ext) > 0) set('info.ext', ext);
+  [['1', 10], ['2', 11], ['e1', 12], ['e2', 13], ['pk', 14]].forEach(([k, r]) => { set('info.sc.a' + k, rxNum(rxv(c, 'E' + r))); set('info.sc.b' + k, rxNum(rxv(c, 'Q' + r))); });
+  // 運営上の問題点：16〜18行目の、見出し以外に書かれた文
+  for (let r = 16; r <= 18 && !getPath(d, 'info.ops'); r++) for (const col of ['E', 'F', 'G', 'H', 'I']) { const v = rxText(rxv(c, col + r)); if (v && !/運営上の問題点/.test(v)) { set('info.ops', v); break; } }
+  const names = {};
+  [['主審', 22], ['副審1', 23], ['副審2', 24], ['第4審', 25]].forEach(([role, r]) => {
+    names[role] = rxText(rxv(c, 'I' + r));
+    if (role === '第4審') return;
+    set(`s.${role}.diff`, DIFFS.includes(rxv(c, 'R' + r)) ? rxv(c, 'R' + r) : '');
+    set(`s.${role}.perf`, PERFS.includes(rxv(c, 'U' + r)) ? rxv(c, 'U' + r) : '');
+    const sc = rxNum(rxv(c, 'X' + r)), ex = rxNum(rxv(c, 'AA' + r));
+    if (ex) set(`s.${role}.exception`, ex);
+    if (sc) {
+      const rg = getPath(d, `s.${role}.diff`) && getPath(d, `s.${role}.perf`) ? B.consts.RANGES[getPath(d, `s.${role}.perf`)][getPath(d, `s.${role}.diff`)] : null;
+      if (!ex && rg && (Number(sc) < rg[0] - 1e-9 || Number(sc) > rg[1] + 1e-9)) { set(`s.${role}.exception`, sc); notes.push(`${role}の評価点 ${sc} は範囲（${rg[0]}〜${rg[1]}）の外なので、例外の評価点として入れます。特記事項に理由を書いてください`); }
+      else set(`s.${role}.score`, Number(sc).toFixed(1));
+    }
+  });
+  [35, 36, 37, 38, 39].forEach((r, i) => { set(`ki.${i}.time`, rxText(rxv(c, 'F' + r))); set(`ki.${i}.text`, rxText(rxv(c, 'I' + r))); });
+  // 主審の分析・評価シート（「レフェリング分析・評価シート」で、割当が主審のもの）
+  const rs = wb.SheetNames.map((n) => wb.Sheets[n]).find((ws) => /レフェリング分析/.test(rxText(rxv(ws, 'B1'))) && /主/.test(rxText(rxv(ws, 'I2'))));
+  if (rs) {
+    set('s.主審.self.achieve', GRADES.includes(rxv(rs, 'D7')) ? rxv(rs, 'D7') : '');
+    set('s.主審.self.challenge', rxText(rxv(rs, 'B8')));
+    const imp = rxText(rxv(rs, 'F8')); if (imp && !/^事前の準備、自分のコンディション/.test(imp)) set('s.主審.self.impression', imp);
+    [['A', 10], ['B', 15], ['C', 20], ['D', 25], ['E', 30]].forEach(([k, r]) => {
+      set(`s.主審.self.items.${k}.grade`, GRADES.includes(rxv(rs, 'D' + (r + 2))) ? rxv(rs, 'D' + (r + 2)) : '');
+      set(`s.主審.self.items.${k}.text`, rxText(rxv(rs, 'B' + (r + 3))));
+      set(`s.主審.items.${k}.eval`, PERFS.includes(rxv(rs, 'H' + (r + 3))) ? rxv(rs, 'H' + (r + 3)) : '');
+      set(`s.主審.items.${k}.advice`, rxText(rxv(rs, 'G' + (r + 4))));
+    });
+    set('s.主審.advice', rxText(rxv(rs, 'B36')));
+  } else notes.push('主審の「レフェリング分析・評価シート」が見つからないため、主審の項目A〜Eは取り込みません');
+  if (wb.SheetNames.some((n) => /副審/.test(n))) notes.push('副審のシートは、様式が分からないため取り込みません（評価点は「共通」から取り込みます）');
+  return { kind: 'アセスメントレポート', data: d, notes, names, assessor: rxText(rxv(c, 'E4')), date: rxDate(rxv(c, 'E15')) };
+}
+// JFAプール審判員 自己分析＆目標達成シート：「氏名」で始まる欄（1枚に2つ）から、試合日が同じものを使う
+function rxPool(wb) {
+  const blocks = [];
+  wb.SheetNames.forEach((n) => {
+    const ws = wb.Sheets[n];
+    for (let r = 1; r <= 80; r++) {
+      if (rxText(rxv(ws, 'A' + r)) !== '氏名') continue;
+      const date = rxDate(rxv(ws, 'D' + r));
+      if (!date && !rxText(rxv(ws, 'B' + r))) continue;
+      blocks.push({ sheet: n, date, name: rxText(rxv(ws, 'B' + r)), coach: rxText(rxv(ws, 'G' + r)), card: `${rxText(rxv(ws, 'D' + (r + 1)))} 対 ${rxText(rxv(ws, 'F' + (r + 1)))}`,
+        past: rxText(rxv(ws, 'B' + (r + 2))), challenge: rxText(rxv(ws, 'B' + (r + 7))), review: rxText(rxv(ws, 'B' + (r + 12))), comment: rxText(rxv(ws, 'B' + (r + 18))) });
+    }
+  });
+  if (!blocks.length) throw new Error('このExcelは読み取れませんでした。アセスメントレポート（シート「共通」）か、JFAプール審判員の目標達成シートを選んでください。');
+  const b = blocks.find((x) => x.date === RP.match.date);
+  if (!b) throw new Error(`この試合（${dl(RP.match.date)}）と同じ試合日の欄が見つかりませんでした。Excelにある試合日：${blocks.map((x) => x.date ? dl(x.date) : '（未記入）').join('、')}`);
+  const d = {}, set = (k, v) => { if (v) setPath(d, k, v); };
+  set('s.主審.self.past', b.past); set('s.主審.self.challenge', b.challenge);
+  // 振り返り：ひな形の文字（見出しや〖５・４・３・２・１〗）以外に何か書いてあれば取り込む
+  if (b.review.replace(/試合全体のコントロール|Challengeの達成度|〖[^〗]*〗|【[^】]*】|[\s　]/g, '')) set('s.主審.self.review', b.review);
+  set('s.主審.advice', b.comment);
+  return { kind: 'JFAプール審判員 目標達成シート', data: d, notes: b.comment ? [] : ['Coachコメントが空です'], names: { 主審: b.name }, assessor: b.coach, date: b.date, sheet: b.sheet };
+}
+function rxPreview() {
+  const d = RX.data, crew = RP.crew, warn = [...RX.notes];
+  if (RX.date && RX.date !== RP.match.date) warn.unshift(`Excelの試合日（${dl(RX.date)}）が、この試合（${dl(RP.match.date)}）と違います`);
+  const nm = (x) => String(x || '').replace(/[\s　]/g, '');
+  Object.keys(RX.names).forEach((role) => { if (RX.names[role] && crew[role] && crew[role].name && nm(RX.names[role]) !== nm(crew[role].name)) warn.push(`${role === '第4審' ? '第4の審判員' : role}の氏名が、Excel（${RX.names[role]}）と割当（${crew[role].name}）で違います`); });
+  const roles = B.consts.OFFICIAL_ROLES.filter((r) => crew[r].evaluated);
+  Object.keys(d.s || {}).forEach((r) => { if (!roles.includes(r)) { delete d.s[r]; } });
+  const rows = [];
+  if (d.info) rows.push(['試合情報', [d.info.date && '記入日 ' + d.info.date, d.info.time && '試合時間 ' + d.info.time + '分', d.info.sc && '試合結果', d.info.ops && '運営上の問題点'].filter(Boolean).join('・')]);
+  roles.forEach((r) => { const x = (d.s || {})[r]; if (!x) return;
+    const it = Object.keys(x.items || {}).length, sf = x.self ? Object.keys(x.self).length : 0;
+    rows.push([r === '第4審' ? '第4の審判員' : r, [x.diff && '難易度 ' + x.diff, x.perf && 'パフォーマンス ' + x.perf, (x.exception || x.score) && '評価点 ' + (x.exception || x.score), it && `項目 ${it}つ`, x.advice && 'アドバイス', sf && '審判員の自己評価'].filter(Boolean).join('・')]); });
+  const ki = (d.ki || []).filter((k) => k && (k.time || k.text)).length; if (ki) rows.push(['Key Incidents', ki + '件']);
+  $('#rx-prev').innerHTML = `<div class="small b" style="margin-bottom:6px">${h(RX.kind)}${RX.sheet ? `（${h(RX.sheet)}）` : ''}を読み取りました${RX.assessor ? `　<span class="muted" style="font-weight:400">記入：${h(RX.assessor)}</span>` : ''}</div>
+    ${rows.length ? `<dl class="kv">${rows.map((x) => `<dt>${h(x[0])}</dt><dd>${h(x[1] || '—')}</dd>`).join('')}</dl>` : '<p class="muted">取り込める内容がありませんでした</p>'}
+    ${warn.length ? `<div class="errs" style="margin-top:10px"><b>確認してください</b><ul>${warn.map((x) => `<li>${h(x)}</li>`).join('')}</ul></div>` : ''}
+    <p class="small muted" style="margin-bottom:0">「入力欄に入れる」を押すと、Excelに書かれている欄だけを上書きします（空の欄は今の入力のまま）。</p>`;
+  $('#rx-ok').disabled = !rows.length;
+}
+function rxApply() {
+  if (!RX) return;
+  const cur = collectReport(), d = RX.data;
+  const walk = (o, path) => Object.keys(o).forEach((k) => { const v = o[k], p = path ? path + '.' + k : k; if (v && typeof v === 'object') walk(v, p); else if (v !== '' && v !== undefined) setPath(cur, p, v); });
+  walk(d, '');
+  fillReport(cur);
+  closeModal(); rpDirty(); toast('Excelの内容を入れました。確認して、必要なら直してください');
+}
 function collectReport() {
   const d = {};
   $$('#rp-form [data-k]').forEach((el) => setPath(d, el.dataset.k, el.value));
@@ -777,6 +917,7 @@ function fillReport(data) {
     if (el.tagName === 'TEXTAREA' && el.dataset.max) cnt(el);
   });
   $$('#rp-form [data-seg]').forEach((s) => { const v = $(`[data-k="${s.dataset.seg}"]`).value; s.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.textContent === v)); });
+  $$('#rp-form details[data-self]').forEach((d) => { if ([...d.querySelectorAll('[data-k]')].some((el) => el.value)) d.open = true; });
   B.consts.OFFICIAL_ROLES.forEach((role) => {
     const ex = $(`[data-k="s.${role}.exception"]`);
     if (ex && ex.value !== '') { $(`#exc-${role}`).checked = true; $(`#ex-${role}`).hidden = false; }
@@ -866,7 +1007,7 @@ ROUTES.report = async (matchId) => {
   const nextBtn = (label) => `<div class="row" style="margin-top:8px"><span class="spacer"></span><button class="btn primary" onclick="rpNext()">次へ：${label} ›</button></div>`;
   const nextOf = (k) => { const i = RP.secs.findIndex((s) => s[0] === k); return RP.secs[i + 1][1]; };
   $('#tools').innerHTML = statusPill(RP.status);
-  setMain(`<div class="row" style="margin-bottom:8px">${dateBox(RP.match.date)}<div style="flex:1;min-width:0"><div class="b">${card(RP.match)}</div><div class="small muted">${h(RP.match.comp)} ${h(RP.match.name)}／${h(RP.match.venue)}</div></div></div>
+  setMain(`<div class="row" style="margin-bottom:8px">${dateBox(RP.match.date)}<div style="flex:1;min-width:0"><div class="b">${card(RP.match)}</div><div class="small muted">${h(RP.match.comp)} ${h(RP.match.name)}／${h(RP.match.venue)}</div></div><button class="btn sm" onclick="rxOpen()">Excelから取り込み</button></div>
     <div class="secnav" id="rp-nav">${RP.secs.map(([k, l], i) => `<button data-t="${k}" class="${i ? '' : 'on'}" onclick="rpTab('${k}')">${l}</button>`).join('')}</div>
     <div id="rp-form" style="margin-top:12px">
       <div class="pane" data-pane="info">
@@ -892,6 +1033,8 @@ ROUTES.report = async (matchId) => {
     <div class="actionbar"><div class="in"><span class="msg" id="rp-state">${RP.status === '下書き' ? '下書きを保存済み' : ''}</span><button class="btn" onclick="rpSave(false)">途中保存</button><button class="btn primary" onclick="rpTab('check')">確認・提出へ</button></div></div>`);
   RP.form = RP.data || {};
   if (!getPath(RP.form, 'info.date')) setPath(RP.form, 'info.date', B.today);
+  { const it = getPath(RP.form, 's.主審.items') || {};
+    Object.keys(it).forEach((k) => { const x = it[k] || {}; if ((x.good || x.bad) && !x.advice) { x.advice = [x.good && '良かった点：' + x.good, x.bad && '課題点：' + x.bad].filter(Boolean).join('\n'); delete x.good; delete x.bad; } }); }
   fillReport(RP.form);
   RP.dirty = false;
   LEAVE = () => { if (RP && RP.dirty && RP.editable) rpSave(false, true); };
