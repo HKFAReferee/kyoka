@@ -829,9 +829,9 @@ function validateReport_(data, crew) {
   const info = data.info || {};
   lim(info.ops, LIMITS.ops, '運営上の問題点');
   (data.ki || []).forEach(function (k, i) { lim(k.text, LIMITS.ki, 'Key Incidents ' + (i + 1)); });
-  const s = data.s || {};
+  const s = data.s || {}, judged = judged_(crew, data);
   ['主審', '副審1', '副審2'].forEach(function (role) {
-    if (!crew[role].evaluated) return;
+    if (judged.indexOf(role) < 0) return;
     const x = s[role] || {};
     const items = x.items || {};
     if (role === '主審') REF_ITEMS.forEach(function (it) { lim((items[it.k] || {}).advice, LIMITS.item, role + ' ' + it.k + ' アドバイス'); lim((items[it.k] || {}).good, LIMITS.good, role + ' ' + it.k + ' 良かった点'); lim((items[it.k] || {}).bad, LIMITS.bad, role + ' ' + it.k + ' 課題点'); });
@@ -855,10 +855,14 @@ function validateReport_(data, crew) {
     const ad = adopted_(x);
     if ((ex !== null || ad < 8.0) && !String(x.note || '').trim()) e.push(role + '：評価点が8.0未満または例外のときは、特記事項に理由を書いてください');
   });
-  if (crew['第4審'].evaluated) lim((s['第4審'] || {}).comment, LIMITS.fourth, '第4の審判員 コメント');
+  if (judged.indexOf('第4審') >= 0) lim((s['第4審'] || {}).comment, LIMITS.fourth, '第4の審判員 コメント');
   return e;
 }
 
+// 評価する役割：基本は主審だけ。レポートで「副審・第4の審判員も評価する」（data.others）を選んだときは、強化審判員が入った役割すべて
+function judged_(crew, data) {
+  return OFFICIAL_ROLES.filter(function (r) { return crew[r].evaluated && (r === '主審' || !!(data && data.others)); });
+}
 function api_reportSave(t, matchId, data, submit) {
   const c = ctx_(t); need_(c, 'asr');
   const s = slotsOf_(matchId);
@@ -880,8 +884,7 @@ function api_reportSave(t, matchId, data, submit) {
     const old = rows_('評価').filter(function (r) { return r['試合ID'] === matchId; }).map(function (r) { return r._row; });
     if (old.length) deleteRows_('評価', old);
     const notify = [];
-    OFFICIAL_ROLES.forEach(function (role) {
-      if (!crew[role].evaluated) return;
+    judged_(crew, data).forEach(function (role) {
       const sec = (data.s || {})[role] || {};
       append_('評価', { '試合ID': matchId, '試合日': m['試合日'], '役割': role, 'メンバーID': crew[role].memberId, '採用評価点': role === '第4審' ? '' : adopted_(sec) });
       notify.push(crew[role].memberId);

@@ -902,6 +902,8 @@ function rxApply() {
   const walk = (o, path) => Object.keys(o).forEach((k) => { const v = o[k], p = path ? path + '.' + k : k; if (v && typeof v === 'object') walk(v, p); else if (v !== '' && v !== undefined) setPath(cur, p, v); });
   walk(d, '');
   fillReport(cur);
+  // Excelに副審の評価が入っていれば「副審・第4の審判員も評価する」にする
+  if ($('#rp-others') && ['副審1', '副審2'].some((r) => getPath(d, `s.${r}.perf`) || getPath(d, `s.${r}.score`))) rpOthers(true, true);
   closeModal(); rpDirty(); toast('Excelの内容を入れました。確認して、必要なら直してください');
 }
 function collectReport() {
@@ -945,12 +947,22 @@ function rpDirty() { if (!RP || !RP.editable) return; RP.dirty = true; $('#rp-st
 const rpAutosave = debounce(() => { if (RP && RP.dirty && RP.editable) rpSave(false, true); }, 4000);
 
 /* 画面側でも提出前のチェックをする（サーバーでも同じ確認をする） */
+// 評価する役割：基本は主審だけ。「副審・第4の審判員も評価する」にしたときは、強化審判員が入った役割すべて
+function judgedRoles(crew, others) { return B.consts.OFFICIAL_ROLES.filter((r) => crew[r].evaluated && (r === '主審' || !!others)); }
+function rpOthers(on, quiet) {
+  if ($('#rp-others')) $('#rp-others').checked = !!on;
+  $('[data-k="others"]').value = on ? '1' : '';
+  $$('#rp-nav button').forEach((b) => { if (['副審1', '副審2', '第4審'].includes(b.dataset.t)) b.hidden = !on; });
+  RP.secs = RP.allSecs.filter((x) => !['副審1', '副審2', '第4審'].includes(x[0]) || on);
+  $$('#rp-form .pane .nextto').forEach((el) => { const i = RP.secs.findIndex((x) => x[0] === el.dataset.from); el.textContent = RP.secs[i + 1] ? `次へ：${RP.secs[i + 1][1]} ›` : ''; });
+  if (!quiet) rpDirty();
+}
 function rpLocalErrors(d) {
   const e = []; const L = B.consts.LIMITS;
   const lim = (v, n, label, sec) => { if (Array.from(v || '').length > n) e.push([sec, `${label}が${n}字を超えています`]); };
   lim((d.info || {}).ops, L.ops, '運営上の問題点', 'info');
   (d.ki || []).forEach((k, i) => lim(k.text, L.ki, 'Key Incidents ' + (i + 1), 'ki'));
-  B.consts.OFFICIAL_ROLES.filter((r) => r !== '第4審' && RP.crew[r].evaluated).forEach((role) => {
+  judgedRoles(RP.crew, d.others).filter((r) => r !== '第4審').forEach((role) => {
     const x = (d.s || {})[role] || {};
     $$(`#rp-form .pane[data-pane="${role}"] textarea[data-max]`).forEach((t) => { if (Array.from(t.value).length > Number(t.dataset.max)) e.push([role, `${role}：字数を超えている欄があります`]); });
     if (!x.diff || !x.perf) return e.push([role, `${role}：難易度と全体のパフォーマンスを選んでください`]);
@@ -974,7 +986,7 @@ function rpCheck() {
   const d = collectReport();
   const errs = rpLocalErrors(d);
   rpMarkErrs(errs);
-  const roles = B.consts.OFFICIAL_ROLES.filter((r) => r !== '第4審' && RP.crew[r].evaluated);
+  const roles = judgedRoles(RP.crew, d.others).filter((r) => r !== '第4審');
   $('#rp-summary').innerHTML = `<div class="grid3">${roles.map((r) => { const x = (d.s || {})[r] || {}; const ad = x.exception !== '' && x.exception !== undefined ? x.exception : x.score; return `<div class="stat"><div class="k">${r}　${h(RP.crew[r].name)}</div><div class="v">${ad ? Number(ad).toFixed(1) : '—'}</div><div class="small muted">${h(x.diff || '難易度未選択')}・${h(x.perf || 'パフォーマンス未選択')}${x.exception ? '・例外' : ''}</div></div>`; }).join('')}</div>`;
   $('#rp-errs').innerHTML = errs.length ? `<div class="errs"><b>提出前に直すところ（${errs.length}件）</b><ul>${errs.map(([s, m]) => `<li><a href="#" onclick="rpTab('${s}');return false;">${h(m)}</a></li>`).join('')}</ul></div>`
     : '<div class="card pale"><span class="blue b">✓ 必須の項目はそろっています</span></div>';
@@ -994,18 +1006,20 @@ ROUTES.report = async (matchId) => {
     setMain(`${RP.status === '未作成' ? `<div class="card">${infoRO(RP.match, {}, RP.assessor, '')}</div>` + empty('まだ作成されていません') : `
       ${B.ctx.com && RP.status === '提出済' ? `<div class="row" style="margin-bottom:12px"><span class="small muted">提出 ${h(RP.submittedAt)}</span><span class="spacer"></span><button class="btn danger sm" onclick="rpRevert()">アセッサーに差し戻す</button></div>` : ''}
       <div class="card">${infoRO(RP.match, d.info || {}, RP.assessor, '')}</div>${videoBtns(RP.videos)}
-      ${evalRoles.map((r) => `<div class="card">${sectionRO(r, (d.s || {})[r] || {}, crew[r].name)}</div>`).join('')}
+      ${judgedRoles(crew, d.others).map((r) => `<div class="card">${sectionRO(r, (d.s || {})[r] || {}, crew[r].name)}</div>`).join('')}
       <div class="card">${kiRO(d.ki, RP.videos, half)}</div>
       ${d.p3 ? `<div class="card warn"><h2 style="margin-top:0">委員会への報告</h2><p class="small muted">審判員には表示されません</p><p class="pre">${h(d.p3)}</p></div>` : ''}`}`);
     return;
   }
   const L = B.consts.LIMITS;
-  RP.secs = [['info', '試合情報'], ...evalRoles.map((r) => [r, r === '第4審' ? '第4の審判員' : r]), ['ki', 'Key Incidents'], ['p3', '委員会への報告'], ['check', '確認・提出']];
+  RP.allSecs = [['info', '試合情報'], ...evalRoles.map((r) => [r, r === '第4審' ? '第4の審判員' : r]), ['ki', 'Key Incidents'], ['p3', '委員会への報告'], ['check', '確認・提出']];
+  RP.secs = RP.allSecs;
   RP.sec = 'info';
   const notEval = B.consts.OFFICIAL_ROLES.filter((r) => !crew[r].evaluated).map((r) => `${r}：${crew[r].kind === '地区派遣' ? '地区派遣のため評価しません' : '割当なし'}`).join('　');
   const sc = (k) => `<input type="number" inputmode="numeric" min="0" data-k="info.sc.${k}" oninput="rpTotals();rpDirty()">`;
-  const nextBtn = (label) => `<div class="row" style="margin-top:8px"><span class="spacer"></span><button class="btn primary" onclick="rpNext()">次へ：${label} ›</button></div>`;
   const nextOf = (k) => { const i = RP.secs.findIndex((s) => s[0] === k); return RP.secs[i + 1][1]; };
+  const nextBtn = (k) => `<div class="row" style="margin-top:8px"><span class="spacer"></span><button class="btn primary nextto" data-from="${k}" onclick="rpNext()">次へ：${nextOf(k)} ›</button></div>`;
+  const hasOthers = evalRoles.some((r) => r !== '主審');
   $('#tools').innerHTML = statusPill(RP.status);
   setMain(`<div class="row" style="margin-bottom:8px">${dateBox(RP.match.date)}<div style="flex:1;min-width:0"><div class="b">${card(RP.match)}</div><div class="small muted">${h(RP.match.comp)} ${h(RP.match.name)}／${h(RP.match.venue)}</div></div><button class="btn sm" onclick="rxOpen()">Excelから取り込み</button></div>
     <div class="secnav" id="rp-nav">${RP.secs.map(([k, l], i) => `<button data-t="${k}" class="${i ? '' : 'on'}" onclick="rpTab('${k}')">${l}</button>`).join('')}</div>
@@ -1019,14 +1033,15 @@ ROUTES.report = async (matchId) => {
           ${[['前半', '1'], ['後半', '2'], ['延長前半', 'e1'], ['延長後半', 'e2'], ['PK', 'pk']].map(([l, k]) => `<tr><td class="small muted" style="text-align:left">${l}</td><td>${sc('a' + k)}</td><td>${sc('b' + k)}</td></tr>`).join('')}</tbody></table></div>
         <div class="card"><div class="field" style="margin:0"><label>運営上の問題点</label>${ta('info.ops', L.ops)}</div></div>
         ${notEval ? `<p class="small muted">${notEval}</p>` : ''}
-        ${nextBtn(nextOf('info'))}
+        <input type="hidden" data-k="others">${hasOthers ? `<label class="row small" style="cursor:pointer;margin:4px 0 8px"><input type="checkbox" id="rp-others" onchange="rpOthers(this.checked)"> 副審・第4の審判員も評価する<span class="muted">（ふだんは主審だけを評価します）</span></label>` : ''}
+        ${nextBtn('info')}
       </div>
-      ${evalRoles.map((r) => `<div class="pane" data-pane="${r}" hidden>${roleForm(r, crew[r])}${nextBtn(nextOf(r))}</div>`).join('')}
+      ${evalRoles.map((r) => `<div class="pane" data-pane="${r}" hidden>${roleForm(r, crew[r])}${nextBtn(r)}</div>`).join('')}
       <div class="pane" data-pane="ki" hidden><div class="card"><p class="small muted">重大な出来事（最大5項目）。時間を「35」「45+2」のように分で書くと、映像の場面へのリンクになります。</p>
         ${[0, 1, 2, 3, 4].map((i) => `<div class="item"><div class="row top" style="flex-wrap:nowrap"><div style="width:88px;flex:none"><label class="flabel">時間（分）</label><input data-k="ki.${i}.time" placeholder="45+2" oninput="rpDirty()"></div><div style="flex:1;min-width:0"><label class="flabel">内容 ${i + 1}</label>${ta(`ki.${i}.text`, L.ki, '', 72)}</div></div></div>`).join('')}</div>
-        ${nextBtn(nextOf('ki'))}</div>
+        ${nextBtn('ki')}</div>
       <div class="pane" data-pane="p3" hidden><div class="card warn"><p class="small"><b class="red">審判員には表示されません。</b>退場などの重大な事態の報告、審判員に関する委員会への報告、事務連絡を書いてください。</p><textarea data-k="p3" style="min-height:200px" oninput="rpDirty()"></textarea></div>
-        ${nextBtn(nextOf('p3'))}</div>
+        ${nextBtn('p3')}</div>
       <div class="pane" data-pane="check" hidden><h2 style="margin-top:0">評価点のまとめ</h2><div id="rp-summary"></div><div id="rp-errs" style="margin-top:12px"></div>
         <div class="card"><p class="small">提出すると、担当審判員と委員会にメールで届きます。<b>提出後は変更できません</b>（修正は委員会の差し戻しが必要です）。</p><button class="btn primary wide" onclick="rpSave(true)">提出する</button></div></div>
     </div>
@@ -1036,6 +1051,7 @@ ROUTES.report = async (matchId) => {
   { const it = getPath(RP.form, 's.主審.items') || {};
     Object.keys(it).forEach((k) => { const x = it[k] || {}; if ((x.good || x.bad) && !x.advice) { x.advice = [x.good && '良かった点：' + x.good, x.bad && '課題点：' + x.bad].filter(Boolean).join('\n'); delete x.good; delete x.bad; } }); }
   fillReport(RP.form);
+  rpOthers(!!RP.form.others, true);   // 副審・第4の審判員のタブは「も評価する」のときだけ
   RP.dirty = false;
   LEAVE = () => { if (RP && RP.dirty && RP.editable) rpSave(false, true); };
   LEAVE.dirty = () => RP && RP.dirty;
