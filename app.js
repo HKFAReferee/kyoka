@@ -1736,7 +1736,7 @@ function cmPaste() {
   openModal({ title: 'CSV・Excelから取り込み', wide: true, body: `
     <p class="small" style="margin-top:0">「書式（Excel）」に書いたファイルか、次の列のCSVを選んでください。Excelからコピーして下に貼り付けても取り込めます。1行目に見出し（大会名・試合日 など）があれば、列の順番は自由です。</p>
     <div class="tbl"><table><thead><tr>${CM_COLS.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead><tbody><tr class="small muted"><td>北海道リーグ</td><td>第10節</td><td>2026/11/3</td><td>13:00</td><td>○○競技場</td><td>チームA</td><td>チームB</td></tr></tbody></table></div>
-    <div class="row" style="margin:10px 0"><label class="btn primary" style="cursor:pointer">ファイルを選ぶ（Excel・CSV）<input type="file" accept=".xlsx,.xls,.csv,.txt,text/csv" onchange="ptFile(this)" hidden></label><a class="btn ghost" href="${formBase()}match_list.xlsx" download="試合一覧_取り込み用書式.xlsx">書式（Excel）をダウンロード</a><button class="btn ghost" onclick="ptTemplate()">CSVのひな形</button></div>
+    <div class="row" style="margin:10px 0"><label class="btn primary" style="cursor:pointer">ファイルを選ぶ（Excel・CSV）<input type="file" accept=".xlsx,.xls,.csv,.txt,text/csv" onchange="ptFile(this)" hidden></label><button class="btn ghost" onclick="ptTemplateXlsx(this)">書式（Excel）をダウンロード</button><button class="btn ghost" onclick="ptTemplate()">CSVのひな形</button></div>
     <textarea id="pt" style="min-height:140px" placeholder="または、ここに貼り付け" oninput="ptRead(this.value)"></textarea>
     <div id="pt-prev" style="margin-top:8px"></div><div id="pt-err" style="margin-top:8px"></div>`,
     foot: `<button class="btn" onclick="closeModal()">やめる</button><button class="btn primary" id="pt-save" onclick="cmPasteSave()" disabled>追加する</button>` });
@@ -1790,6 +1790,39 @@ async function ptFile(inp) {
     try { t = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { t = new TextDecoder('shift_jis').decode(buf); }
   }
   $('#pt').value = t; ptRead(t);
+}
+// 書式（Excel）：大会名・会場・チームの ▼ の一覧（隠しシート「リスト」）を、今のマスタと登録済みの大会名で作り直してダウンロード
+function loadJSZip() {
+  if (window.JSZip) return Promise.resolve();
+  return new Promise((ok, ng) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'; sc.onload = ok; sc.onerror = () => ng(new Error('読み込めませんでした')); document.head.appendChild(sc); });
+}
+async function ptTemplateXlsx(btn) {
+  const url = formBase() + 'match_list.xlsx', name = '試合一覧_取り込み用書式.xlsx';
+  const save = (blob) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+  if (btn) btn.disabled = true;
+  try {
+    const [buf] = await Promise.all([fetch(url).then((r) => r.arrayBuffer()), loadJSZip()]);
+    const zip = await JSZip.loadAsync(buf);
+    const wbx = await zip.file('xl/workbook.xml').async('string'), rels = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+    const rid = (wbx.match(/<sheet [^>]*name="リスト"[^>]*r:id="([^"]+)"/) || [])[1];
+    const tgt = rid && ((rels.match(new RegExp(`<Relationship[^>]*Id="${rid}"[^>]*Target="([^"]+)"`)) || rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${rid}"`)) || [])[1]);
+    if (!tgt) throw new Error('no list sheet');
+    const path = 'xl/' + tgt.replace(/^\//, '').replace(/^xl\//, '');
+    const teams = Object.values(CM.teamGroups || {}).flat();
+    const venues = [...new Set([...(CM.venues || []), ...CM.matches.map((m) => m.venue).filter(Boolean)])];
+    const cols = [CM.comps || [], venues, teams.length ? teams : (CM.teams || [])];
+    const x = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const n = Math.max(...cols.map((c) => c.length));
+    let data = '<row r="1"><c r="A1" t="inlineStr"><is><t>大会名</t></is></c><c r="B1" t="inlineStr"><is><t>会場</t></is></c><c r="C1" t="inlineStr"><is><t>チーム</t></is></c></row>';
+    for (let i = 0; i < n; i++) data += `<row r="${i + 2}">` + cols.map((c, j) => c[i] ? `<c r="${'ABC'[j]}${i + 2}" t="inlineStr"><is><t>${x(c[i])}</t></is></c>` : '').join('') + '</row>';
+    let xml = await zip.file(path).async('string');
+    xml = xml.replace(/<sheetData\/>|<sheetData>[\s\S]*<\/sheetData>/, `<sheetData>${data}</sheetData>`).replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:C${n + 1}"/>`);
+    zip.file(path, xml);
+    save(await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  } catch (e) {
+    // 作り直せないときは、書式をそのまま（▼の一覧は2026年のチーム・会場）
+    const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  } finally { if (btn) btn.disabled = false; }
 }
 function ptTemplate() {
   const csv = '﻿' + CM_COLS.map((c) => c[1]).join(',') + '\r\n北海道リーグ,第10節,2026/11/3,13:00,○○競技場,チームA,チームB\r\n';
