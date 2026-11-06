@@ -13,4 +13,4 @@ GitHub Pages（https://hkfareferee.github.io/kyoka/）で公開する画面。�
 - URL：`?t=トークン&p=ページ&a=引数`。トークンは個人用の合言葉なので、このリポジトリやログに書かない
 - ロール別メニュー：自分／アセッサー／みんな／委員会（`navGroups`）。チーム用 URL は映像提供ページだけ
 - `demo/`：独立して動くデモ（https://hkfareferee.github.io/kyoka/demo/）。サーバーの処理を見えない iframe（`gas.html`＋`backend.js`）で動かし、`demo.js` が `fetch` をそこへ回す。データはその端末の localStorage だけ。上の帯で委員会／審判員／アセッサーを切り替え、「最初に戻す」で作り直す。デモの「今日」は毎月5日に固定。`backend.js` は kyoka-system の `node tools/build-demo.js` で作る（直接編集しない。`src/` を変えたら作り直す）
-- `forms/`：アセスメントレポートと JFAプール目標達成シートの書式（空のExcel）。レポート画面・自己評価・担当試合のページからダウンロード（`formLinks`）
+- `forms/`：アセスメントレポートと JFAプール目標達成シートの書式（空のExcel）。レポート画面・自己評価・担当試合のページからダウンロード（`formLinks`）。`match_list.xlsx` は試合一覧の取り込み用（委員会の「CSV・Excelから取り込み」。Excel をそのまま読める。例の行「○○競技場・チームA〜D」は取り込まない）

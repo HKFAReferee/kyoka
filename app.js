@@ -853,8 +853,9 @@ function roleForm(role, crew) {
    読み取った内容を確認してから、入力欄に入れる（提出はいつもどおり画面から） */
 let RX = null, RXM = null;
 // 書式（空のExcel）。forms/ に置いてある（デモのページからは一つ上）
+function formBase() { return /\/demo\//.test(location.pathname) ? '../forms/' : 'forms/'; }
 function formLinks() {
-  const base = /\/demo\//.test(location.pathname) ? '../forms/' : 'forms/';
+  const base = formBase();
   return `<div class="row small" style="gap:6px;flex-wrap:wrap;margin:8px 0 0"><span class="muted">書式：</span><a class="btn sm ghost" href="${base}assessment_report.xlsx" download="アセスメントレポート書式.xlsx">アセスメントレポート</a><a class="btn sm ghost" href="${base}jfa_pool_sheet.xlsx" download="JFAプール目標達成シート書式.xlsx">JFAプール目標達成シート</a></div>`;
 }   // RXM：自己評価のページから使うときの試合
 function loadXLSX() {
@@ -1716,9 +1717,9 @@ let PT = [];
 function cmPaste() {
   PT = [];
   openModal({ title: 'CSV・Excelから取り込み', wide: true, body: `
-    <p class="small" style="margin-top:0">次の列のCSVファイルを選ぶか、Excelで同じ列を並べてコピーし、下に貼り付けてください。1行目に見出し（大会名・試合日 など）があれば、列の順番は自由です。</p>
+    <p class="small" style="margin-top:0">「書式（Excel）」に書いたファイルか、次の列のCSVを選んでください。Excelからコピーして下に貼り付けても取り込めます。1行目に見出し（大会名・試合日 など）があれば、列の順番は自由です。</p>
     <div class="tbl"><table><thead><tr>${CM_COLS.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead><tbody><tr class="small muted"><td>北海道リーグ</td><td>第10節</td><td>2026/11/3</td><td>13:00</td><td>○○競技場</td><td>チームA</td><td>チームB</td></tr></tbody></table></div>
-    <div class="row" style="margin:10px 0"><label class="btn primary" style="cursor:pointer">CSVファイルを選ぶ<input type="file" accept=".csv,.txt,text/csv" onchange="ptFile(this)" hidden></label><button class="btn ghost" onclick="ptTemplate()">ひな形（CSV）をダウンロード</button></div>
+    <div class="row" style="margin:10px 0"><label class="btn primary" style="cursor:pointer">ファイルを選ぶ（Excel・CSV）<input type="file" accept=".xlsx,.xls,.csv,.txt,text/csv" onchange="ptFile(this)" hidden></label><a class="btn ghost" href="${formBase()}match_list.xlsx" download="試合一覧_取り込み用書式.xlsx">書式（Excel）をダウンロード</a><button class="btn ghost" onclick="ptTemplate()">CSVのひな形</button></div>
     <textarea id="pt" style="min-height:140px" placeholder="または、ここに貼り付け" oninput="ptRead(this.value)"></textarea>
     <div id="pt-prev" style="margin-top:8px"></div><div id="pt-err" style="margin-top:8px"></div>`,
     foot: `<button class="btn" onclick="closeModal()">やめる</button><button class="btn primary" id="pt-save" onclick="cmPasteSave()" disabled>追加する</button>` });
@@ -1748,21 +1749,30 @@ function ptRead(text) {
     const hd = rows.shift();
     idx = CM_COLS.map(([k]) => hd.findIndex((x) => alias[k].test(x)));
   }
-  PT = rows.map((r) => { const o = {}; CM_COLS.forEach(([k], i) => { o[k] = idx[i] >= 0 ? (r[idx[i]] || '') : ''; }); return o; });
+  PT = rows.map((r) => { const o = {}; CM_COLS.forEach(([k], i) => { o[k] = idx[i] >= 0 ? (r[idx[i]] || '') : ''; }); return o; })
+    .filter((o) => !(o.venue === '○○競技場' && /^チーム[A-D]$/.test(o.a)));   // 書式の例の行は取り込まない
   const bad = (o) => !o.comp || !o.date || !o.a || !o.b;
   $('#pt-save').disabled = !PT.length;
   $('#pt-err').innerHTML = '';
   $('#pt-prev').innerHTML = PT.length ? `<div class="small b" style="margin-bottom:4px">${PT.length}試合を読み取りました${PT.some(bad) ? `<span class="red">（大会名・試合日・チームが空の行 ${PT.filter(bad).length}件）</span>` : ''}</div>
     <div class="tbl" style="max-height:260px;overflow:auto"><table><thead><tr>${CM_COLS.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead><tbody>${PT.map((o) => `<tr class="${bad(o) ? 'warn' : ''}">${CM_COLS.map(([k]) => `<td class="small">${h(o[k]) || (['comp', 'date', 'a', 'b'].includes(k) ? '<span class="red">空</span>' : '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '';
 }
-// ファイルを読む：UTF-8 で読めなければ Shift_JIS（Excel で保存したCSV）として読む
-function ptFile(inp) {
-  const f = inp.files && inp.files[0]; if (!f) return;
-  f.arrayBuffer().then((buf) => {
-    let t; try { t = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { t = new TextDecoder('shift_jis').decode(buf); }
-    $('#pt').value = t; ptRead(t);
-  });
-  inp.value = '';
+// ファイルを読む：Excel は「試合一覧」シート（なければ最初のシート）をタブ区切りにして読む。
+// CSV は UTF-8 で読めなければ Shift_JIS（Excel で保存したCSV）として読む
+async function ptFile(inp) {
+  const f = inp.files && inp.files[0]; inp.value = ''; if (!f) return;
+  const buf = await f.arrayBuffer();
+  let t;
+  if (/\.xlsx?$/i.test(f.name)) {
+    try { await loadXLSX(); } catch (e) { return fail(e); }
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    const ws = wb.Sheets['試合一覧'] || wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy/m/d', defval: '' });
+    t = rows.map((r) => r.map((c) => String(c).replace(/[\t\r\n]+/g, ' ')).join('\t')).join('\n');
+  } else {
+    try { t = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { t = new TextDecoder('shift_jis').decode(buf); }
+  }
+  $('#pt').value = t; ptRead(t);
 }
 function ptTemplate() {
   const csv = '﻿' + CM_COLS.map((c) => c[1]).join(',') + '\r\n北海道リーグ,第10節,2026/11/3,13:00,○○競技場,チームA,チームB\r\n';
