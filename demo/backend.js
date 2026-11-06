@@ -588,7 +588,7 @@ function api_home(t) {
   if (c.ref) {
     // 主審として担当する試合の自己評価：レポートが出るまで、まだアセッサーに送っていないもの（試合の1週間前から）
     const soon = Utilities.formatDate(new Date(Date.now() + 7 * 86400000), TZ, 'yyyy-MM-dd');
-    const todo = api_mySelfList(t).filter(function (x) { return !x.sentAt && !x.locked && x.date <= soon; });
+    const todo = api_mySelfList(t).filter(function (x) { return x.assigned && !x.sentAt && !x.locked && x.date <= soon; });
     if (todo.length) res.notices.push({ page: 'selfeval', arg: todo[0].id, text: '自己評価を書いてアセッサーに送ってください（' + todo.map(function (x) { return x.date.slice(5).replace('-', '/') + ' ' + x.a + ' 対 ' + x.b; }).join('、') + '）' });
   }
   if (c.asr) {
@@ -741,31 +741,44 @@ function api_myReport(t, matchId) {
 function selfRow_(matchId, memberId) { return rows_('自己評価').find(function (r) { return r['試合ID'] === matchId && r['メンバーID'] === memberId; }); }
 function selfView_(r) { return r ? { data: JSON.parse(r['内容JSON'] || '{}'), savedAt: r['更新日時'], sentAt: r['送信日時'] } : { data: {}, savedAt: '', sentAt: '' }; }
 function reportDone_(matchId) { const rep = rows_('レポート').find(function (r) { return r['試合ID'] === matchId; }); return !!(rep && rep['状態'] === '提出済'); }
-function myRefMatch_(c, matchId) {
+// 自己評価はどの試合でも書ける（自分の振り返り）。主審として割り当てられた試合（公開済み）だけ、アセッサーに送れてレポートに入る
+function assignedRef_(c, matchId) {
   const s = slotsOf_(matchId), m = match_(matchId);
-  if (!m || !s['主審'] || s['主審'].kind !== '強化' || s['主審'].memberId !== c.id || !assignPublished_(m['対象月'])) throw new Error('主審として担当する試合だけ書けます。');
+  return !!(m && s['主審'] && s['主審'].kind === '強化' && s['主審'].memberId === c.id && assignPublished_(m['対象月']));
+}
+function myRefMatch_(c, matchId) {
+  const m = match_(matchId);
+  if (!m) throw new Error('試合が見つかりません。');
   return m;
 }
 function api_mySelfList(t) {
   const c = ctx_(t); need_(c, 'ref');
-  return rows_('割当').filter(function (r) { return r['役割'] === '主審' && r['区分'] === '強化' && r['メンバーID'] === c.id; }).map(function (r) {
-    const m = match_(r['試合ID']);
-    if (!m || !assignPublished_(m['対象月'])) return null;
-    const v = matchView_(m), sv = selfView_(selfRow_(v.id, c.id));
-    v.savedAt = sv.savedAt; v.sentAt = sv.sentAt; v.locked = reportDone_(v.id);
+  const ids = {};
+  rows_('割当').forEach(function (r) { if (r['役割'] === '主審' && r['区分'] === '強化' && r['メンバーID'] === c.id) ids[r['試合ID']] = 1; });
+  rows_('自己評価').forEach(function (r) { if (r['メンバーID'] === c.id) ids[r['試合ID']] = 1; });
+  return Object.keys(ids).map(function (id) {
+    const m = match_(id);
+    if (!m) return null;
+    const assigned = assignedRef_(c, id);
+    const sv = selfView_(selfRow_(id, c.id));
+    if (!assigned && !sv.savedAt) return null;
+    const v = matchView_(m);
+    v.assigned = assigned; v.savedAt = sv.savedAt; v.sentAt = sv.sentAt; v.locked = assigned && reportDone_(id);
     return v;
   }).filter(Boolean).sort(sortByDate_).reverse();
 }
 function api_selfGet(t, matchId) {
   const c = ctx_(t); need_(c, 'ref');
-  const m = myRefMatch_(c, matchId), sv = selfView_(selfRow_(matchId, c.id));
+  const m = myRefMatch_(c, matchId), sv = selfView_(selfRow_(matchId, c.id)), assigned = assignedRef_(c, matchId);
   const asr = slotsOf_(matchId)['アセッサー'];
-  return { match: matchView_(m), data: sv.data, savedAt: sv.savedAt, sentAt: sv.sentAt, locked: reportDone_(matchId), assessor: asr && asr.kind === '強化' ? memberName_(asr.memberId) : '' };
+  return { match: matchView_(m), data: sv.data, savedAt: sv.savedAt, sentAt: sv.sentAt, assigned: assigned, locked: assigned && reportDone_(matchId), assessor: assigned && asr && asr.kind === '強化' ? memberName_(asr.memberId) : '' };
 }
 function api_selfSave(t, matchId, data, send) {
   const c = ctx_(t); need_(c, 'ref');
   myRefMatch_(c, matchId);
-  if (reportDone_(matchId)) throw new Error('レポートが提出されたため、自己評価は変えられません。');
+  const assigned = assignedRef_(c, matchId);
+  if (assigned && reportDone_(matchId)) throw new Error('レポートが提出されたため、自己評価は変えられません。');
+  if (!assigned) send = false;   // 割当のない試合は自分の振り返りとして保存するだけ
   const d = data || {}, e = [];
   ['challenge', 'impression', 'past', 'review'].forEach(function (k) { if (len_(d[k]) > LIMITS.self) e.push('1000字を超えている欄があります'); });
   REF_ITEMS.forEach(function (it) { if (len_(((d.items || {})[it.k] || {}).text) > LIMITS.self) e.push(it.k + '：1000字を超えています'); });
@@ -1064,6 +1077,23 @@ function api_setDeadline(t, ym, date) {
   const d = date ? normDate_(date) : '';
   if (date && !d) throw new Error('日付を選んでください。');
   return withLock_(function () { setMonth_(ym, '回答締切', d); return { deadline: surveyDeadline_(ym) }; });
+}
+// テストのやり直し用：この月の試合の稼働調査の回答・割当・レポート（PDFはゴミ箱へ）・評価・自己評価を消し、公開・締切の状態を最初に戻す（試合はそのまま。メールは送らない）
+function api_resetMonth(t, ym) {
+  const c = ctx_(t); need_(c, 'com');
+  return withLock_(function () {
+    const ids = rows_('試合').filter(function (m) { return m['対象月'] === ym; }).map(function (m) { return m['試合ID']; });
+    const n = {};
+    ['稼働調査', '割当', 'レポート', '評価', '自己評価'].forEach(function (name) {
+      const rs = rows_(name).filter(function (r) { return ids.indexOf(r['試合ID']) >= 0; });
+      if (name === 'レポート') rs.forEach(function (r) { const f = String(r['PDF'] || '').match(/[-\w]{25,}/); if (f && typeof DriveApp !== 'undefined') { try { DriveApp.getFileById(f[0]).setTrashed(true); } catch (e) {} } });
+      if (rs.length) deleteRows_(name, rs.map(function (r) { return r._row; }));
+      n[name] = rs.length;
+    });
+    const mr = monthRow_(ym);
+    if (mr) { const o = clean_(mr); o['一覧公開日時'] = ''; o['割当公開日時'] = ''; o['回答締切'] = ''; update_('月管理', mr._row, o); }
+    return n;
+  });
 }
 function api_publishList(t, ym) {
   const c = ctx_(t); need_(c, 'com');
@@ -1465,6 +1495,23 @@ function api_addComment(t, videoId, x) {
   });
 }
 
+// まとめて追加（箇条書き・Excelから）。list：[{videoId, sec, target, cat, eval, text}]
+function api_addComments(t, list) {
+  const c = ctx_(t); need_(c);
+  if (!c.asr && !c.com) throw new Error('コメントはアセッサーが入力できます。');
+  list = (list || []).filter(function (x) { return String(x.text || '').trim(); });
+  if (!list.length) throw new Error('追加するものがありません。');
+  if (list.length > 200) throw new Error('一度に追加できるのは200件までです。');
+  const vids = {}; rows_('試合映像').forEach(function (r) { vids[r['映像ID']] = 1; });
+  list.forEach(function (x, i) { if (!vids[x.videoId]) throw new Error((i + 1) + '件目：映像が見つかりません。'); if (len_(x.text) > 500) throw new Error((i + 1) + '件目：500字以内にしてください。'); });
+  return withLock_(function () {
+    list.forEach(function (x) {
+      append_('映像コメント', { 'コメントID': uid_(), '映像ID': x.videoId, '秒': Math.max(0, Math.round(Number(x.sec) || 0)), '対象': x.target || '',
+        '分類': x.cat || '', '評価': x.eval || '', 'コメント': String(x.text).trim(), '記入者ID': c.id, '日時': now_() });
+    });
+    return api_video(t, list[0].videoId).comments;
+  });
+}
 function api_delComment(t, id) {
   const c = ctx_(t); need_(c);
   return withLock_(function () {

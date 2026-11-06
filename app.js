@@ -549,14 +549,24 @@ ROUTES.myreports = async () => {
   head('アセスメントレポート');
   const [r, sl] = await Promise.all([get('api_myReports'), B.ctx.ref ? get('api_mySelfList') : Promise.resolve([])]);
   // 主審を担当する試合の自己評価（試合前にチャレンジ、試合後に振り返りを書いてアセッサーに送る）
-  const selfHtml = sl.length ? `<h2 style="margin-top:0">自己評価</h2><p class="small muted">主審を担当する試合の、チャレンジと振り返りを書いてアセッサーに送ります。レポートが提出されると、その中に入ります。</p>${formLinks()}<div style="height:10px"></div>
-    <div class="list" style="margin-bottom:20px">${sl.map((m) => matchLi(m, `<span class="pill ${m.locked ? '' : m.sentAt ? 'ok' : 'red'}">${m.locked ? 'レポートに入りました' : m.sentAt ? '送信済み' : m.savedAt ? '下書き' : '未記入'}</span>`, `go('selfeval','${m.id}')`)).join('')}</div>` : '';
+  const pill = (m) => !m.assigned ? '<span class="pill">振り返り</span>' : `<span class="pill ${m.locked ? '' : m.sentAt ? 'ok' : 'red'}">${m.locked ? 'レポートに入りました' : m.sentAt ? '送信済み' : m.savedAt ? '下書き' : '未記入'}</span>`;
+  const selfHtml = B.ctx.ref ? `<div class="row" style="margin-bottom:4px"><h2 style="margin:0">自己評価・振り返り</h2><span class="spacer"></span><button class="btn sm" onclick="sePick()">＋ 試合を選んで書く</button></div>
+    <p class="small muted" style="margin-top:4px">主審として割り当てられた試合は、書いてアセッサーに送るとレポートに入ります。そのほかの試合も、自分の振り返りとして書けます。</p>${formLinks()}<div style="height:10px"></div>
+    ${sl.length ? `<div class="list" style="margin-bottom:20px">${sl.map((m) => matchLi(m, pill(m), `go('selfeval','${m.id}')`)).join('')}</div>` : '<p class="small muted" style="margin-bottom:20px">まだありません</p>'}` : '';
   if (!r.list.length) return setMain(selfHtml + empty('まだレポートはありません。<br>担当した試合のレポートが提出されると、メールでお知らせします。'));
   setMain(`${selfHtml}${annualStats(r.annual)}<p class="small muted">年間評価は、その年に受けたレポートの評価点（例外の評価点があればそちら）の平均です。</p>
     <h2>受け取ったレポート</h2><div class="list">${r.list.map((m) => matchLi(m, `<div style="text-align:right"><div class="small muted">${h(m.role)}</div><div class="b blue num" style="font-size:18px">${scoreText(m.score)}</div></div>`, `go('myreport','${m.id}')`)).join('')}</div>`);
 };
 
-/* ───────── 審判員：自己評価（主審を担当する試合） ───────── */
+/* ───────── 審判員：自己評価（主審を担当する試合）・振り返り（どの試合でも） ───────── */
+async function sePick() {
+  openModal({ title: '試合を選んで書く', body: '<p class="loading">試合を読み込み中…</p>' });
+  let ms; try { ms = await get('api_videoMatches'); } catch (e) { closeModal(); return fail(e); }
+  if ($('#modal').hidden) return;
+  $('#modal .modal-body').innerHTML = ms.length ? `<p class="small" style="margin-top:0">主審をした試合を選んでください（今日までの試合が新しい順）。</p>
+    <div class="search" style="margin:0 0 8px"><input type="search" placeholder="チーム名・大会名でさがす" oninput="$$('#sp-list .li').forEach((el)=>el.hidden=!el.textContent.includes(this.value))"></div>
+    <div class="list" id="sp-list" style="max-height:50vh;overflow:auto">${ms.map((m) => matchLi(m, '', `closeModal();go('selfeval','${m.id}')`)).join('')}</div>` : empty('試合がありません');
+}
 let SE = null;
 function selfFields(L) {
   return `<div class="card"><div class="field"><label>過去3試合の指摘事項で改善できていないこと</label>${ta('past', L.self)}</div>
@@ -569,16 +579,17 @@ function selfFields(L) {
 }
 ROUTES.selfeval = async (matchId) => {
   if (!matchId) return go('myreports');
-  head('自己評価', ['myreports']);
+  head('自己評価・振り返り', ['myreports']);
   SE = await call('api_selfGet', matchId);
   SE.id = matchId; SE.dirty = false;
   const L = B.consts.LIMITS;
-  $('#tools').innerHTML = SE.locked ? '<span class="pill">確定</span>' : SE.sentAt ? '<span class="pill ok">送信済み</span>' : '<span class="pill red">未送信</span>';
+  $('#tools').innerHTML = SE.locked ? '<span class="pill">確定</span>' : !SE.assigned ? '<span class="pill">振り返り</span>' : SE.sentAt ? '<span class="pill ok">送信済み</span>' : '<span class="pill red">未送信</span>';
   setMain(`<div class="row" style="margin-bottom:12px;flex-wrap:wrap">${dateBox(SE.match.date)}<div style="flex:1;min-width:220px"><div class="b">${card(SE.match)}</div><div class="small muted">${h(SE.match.comp)} ${h(SE.match.name)}／${h(SE.match.venue)}${SE.assessor ? `　アセッサー：${h(SE.assessor)}` : ''}</div></div>${SE.locked ? '' : '<button class="btn sm" style="margin-left:auto" onclick="seImport()">Excelから取り込み</button>'}</div>
     <div class="card ${SE.locked ? '' : 'pale'} small" style="margin-bottom:12px">${SE.locked ? 'レポートが提出され、この自己評価はレポートに入りました。もう変えられません。'
+      : !SE.assigned ? 'この試合は主審の割当がないため、<b>自分の振り返り</b>として保存します（アセッサーには送られません）。あとから見返せます。'
       : `試合前に「チャレンジ」を、試合後に「達成度・感想・振り返り・項目ごとの自己評価」を書いて、<b>「アセッサーに送る」</b>を押してください。レポートが提出されるまでは、直して送り直せます。${SE.sentAt ? `<div class="b blue" style="margin-top:4px">送信済み（${h(SE.sentAt)}）</div>` : ''}`}</div>
     <div id="se-form">${selfFields(L)}</div>
-    ${SE.locked ? '' : `<div class="actionbar"><span class="msg" id="se-state">${SE.savedAt ? '保存済み（' + h(SE.savedAt) + '）' : ''}</span><button class="btn" onclick="seSave(false)">途中保存</button><button class="btn primary" onclick="seSave(true)">アセッサーに送る</button></div>`}`);
+    ${SE.locked ? '' : `<div class="actionbar"><span class="msg" id="se-state">${SE.savedAt ? '保存済み（' + h(SE.savedAt) + '）' : ''}</span>${SE.assigned ? '<button class="btn" onclick="seSave(false)">途中保存</button><button class="btn primary" onclick="seSave(true)">アセッサーに送る</button>' : '<button class="btn primary" onclick="seSave(false)">保存</button>'}</div>`}`);
   $$('#se-form [data-k]').forEach((el) => { const v = getPath(SE.data, el.dataset.k); if (v !== undefined && v !== null) el.value = v; if (el.tagName === 'TEXTAREA' && el.dataset.max) cnt(el); if (SE.locked) el.disabled = true; });
   $$('#se-form [data-seg]').forEach((sg) => { const v = $(`[data-k="${sg.dataset.seg}"]`).value; sg.querySelectorAll('button').forEach((b) => { b.classList.toggle('on', b.textContent === v); if (SE.locked) b.disabled = true; }); });
   LEAVE = () => { if (SE && SE.dirty && !SE.locked) seSave(false, true); SE = null; };
@@ -1405,7 +1416,7 @@ ROUTES.video = async (arg) => {
       <div id="marks"></div>
       <div id="case-area"></div>
       <div class="card" style="padding:0">
-        <div class="row" style="padding:12px 16px;border-bottom:1px solid var(--line)"><h2 style="margin:0">コメント</h2><span class="spacer"></span>${VD.canComment ? `<button class="btn sm primary" onclick="cmOpen()">＋ 今の場面にコメント</button>` : ''}</div>
+        <div class="row" style="padding:12px 16px;border-bottom:1px solid var(--line)"><h2 style="margin:0">コメント</h2><span class="spacer"></span>${VD.canComment ? `<button class="btn sm" onclick="cbOpen()">まとめて追加</button><button class="btn sm primary" onclick="cmOpen()">＋ 今の場面にコメント</button>` : ''}</div>
         <div id="cm-form"></div>
         <div id="cm-filter" style="padding:8px 12px 0"></div>
         <div class="clist" id="clist"></div>
@@ -1544,6 +1555,98 @@ async function cmSave() {
     VD.comments = await call('api_addComment', r.id, { sec: r.local, target: CMF.target, cat: /主審|副審/.test(CMF.target) ? $('#cm-cat').value : '', eval: CMF.eval, text: $('#cm-text').value });   // 組全体のコメントが返る
     $('#cm-form').innerHTML = ''; renderComments(); toast('追加しました');
   } catch (e) { fail(e); }
+}
+/* コメントのまとめて追加：「15:22　決定的得点機会の阻止」のような箇条書き、Excel の貼り付け、Excel ファイル（書式：forms/video_events.xlsx）から。
+   列は 時間・前半/後半・対象・評価・内容。時間はキックオフ位置が設定されていれば試合の時間、なければ映像の時間 */
+const CB_TARGETS = ['主審', '副審1', '副審2', '第4審', 'チーム全体'], CB_EVALS = ['良い', '課題'];
+let CB = [];
+function cbOpen() {
+  pausePlayer(); CB = [];
+  openModal({ title: 'コメントをまとめて追加', wide: true, body: `
+    <p class="small" style="margin-top:0">1行に1件ずつ「時間　内容」の形で書くか、Excel から貼り付け・ファイルを選んでください。時間は${tMode() === 'match' ? '<b>試合の時間</b>（キックオフからの時間。後半は「後半 10:00」または「55:00」）' : '<b>映像の時間</b>（キックオフ位置を設定すると試合の時間で入れられます）'}です。</p>
+    <pre class="small muted" style="background:var(--bg);padding:8px;border-radius:6px;margin:0 0 8px;white-space:pre-wrap">15:22　決定的得点機会の阻止
+前半 32:10　主審　課題　PA内の接触、距離が遠い
+後半 05:40　副審1　良い　オフサイドの正確な判定</pre>
+    <div class="grid2"><div class="field"><label>対象（書いていない行）</label><select id="cb-tg">${CB_TARGETS.map((x) => `<option>${x}</option>`).join('')}</select></div>
+      <div class="field"><label>評価（書いていない行）</label><select id="cb-ev"><option value="">なし</option>${CB_EVALS.map((x) => `<option>${x}</option>`).join('')}</select></div></div>
+    <div class="row" style="margin:0 0 8px;flex-wrap:wrap"><label class="btn" style="cursor:pointer">Excelファイルを選ぶ<input type="file" accept=".xlsx,.xls,.csv" onchange="cbFile(this)" hidden></label><a class="btn ghost" href="${formBase()}video_events.xlsx" download="試合映像_事象の書式.xlsx">書式（Excel）をダウンロード</a></div>
+    <textarea id="cb-text" style="min-height:160px" placeholder="ここに書くか貼り付け" oninput="cbRead()"></textarea>
+    <div id="cb-prev" style="margin-top:8px"></div>`,
+    foot: `<button class="btn" onclick="closeModal()">やめる</button><button class="btn primary" id="cb-ok" onclick="cbSave()" disabled>追加する</button>` });
+  $('#cb-tg').onchange = $('#cb-ev').onchange = cbRead;
+}
+// 時間の書き方をそろえる：「15:22」「15分」「45+2」「45+2:10」「1:02:03」（映像の時間）
+function cbTime(t) {
+  t = String(t || '').trim().replace(/[：]/g, ':').replace(/[＋]/g, '+').replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0));
+  let m;
+  if ((m = t.match(/^(\d+)分(?:(\d+)秒)?$/))) return m[1] + ':' + String(m[2] || 0).padStart(2, '0');
+  if ((m = t.match(/^(\d+)\+(\d+)$/))) return m[1] + '+' + m[2] + ':00';
+  return t;
+}
+function cbLine(cols) {
+  // cols：[時間, 前半/後半, 対象, 評価, 内容]
+  let [time, half, target, ev, text] = cols.map((x) => String(x === undefined || x === null ? '' : x).trim());
+  return { time: cbTime(time), half: /後/.test(half) ? '後半' : /前/.test(half) ? '前半' : '', target: CB_TARGETS.includes(target) ? target : '', eval: CB_EVALS.includes(ev) ? ev : '', text };
+}
+function cbParseText(text) {
+  const out = [];
+  text.split(/\r?\n/).forEach((line) => {
+    if (!line.trim()) return;
+    if (line.includes('\t')) {
+      const c = line.split('\t');
+      if (/時間/.test(c[0]) && /内容|コメント/.test(c.join(''))) return;   // 見出しの行
+      return out.push(cbLine(c.length >= 5 ? c : [c[0], '', '', '', c.slice(1).join(' ')]));
+    }
+    // 箇条書き：「・前半 15:22　主審　課題　内容」
+    const m = line.replace(/^\s*[・\-*●○■□▶︎►]\s*/, '').match(/^(前半|後半)?\s*(\d{1,3}(?:\+\d+)?(?::\d{1,2}){0,2}|\d+分(?:\d+秒)?)[\s　]+(.+)$/);
+    if (!m) return out.push({ time: '', half: '', target: '', eval: '', text: line.trim(), bad: true });
+    let rest = m[3].trim(), target = '', ev = '';
+    for (let k = 0; k < 2; k++) {
+      const w = rest.match(/^(\S+?)[\s　、:：]+(.+)$/);
+      if (!w) break;
+      if (!target && CB_TARGETS.includes(w[1])) { target = w[1]; rest = w[2]; } else if (!ev && CB_EVALS.includes(w[1])) { ev = w[1]; rest = w[2]; } else break;
+    }
+    out.push({ time: cbTime(m[2]), half: m[1] || '', target, eval: ev, text: rest });
+  });
+  return out.filter((x) => !/^（例）/.test(x.text));
+}
+function cbRead() {
+  CB = cbParseText($('#cb-text').value);
+  const dt = $('#cb-tg').value, de = $('#cb-ev').value;
+  CB.forEach((x) => {
+    x.t = x.target || dt; x.e = x.eval || de;
+    const r = x.bad || !x.time ? '時間が読み取れません' : !x.text ? '内容がありません' : parseIn(x.time, x.half);
+    x.err = typeof r === 'string' ? r : ''; x.pos = typeof r === 'string' ? null : r;
+  });
+  const ok = CB.filter((x) => !x.err).length;
+  $('#cb-ok').disabled = !ok;
+  $('#cb-prev').innerHTML = CB.length ? `<div class="small b" style="margin-bottom:4px">${ok}件を追加できます${CB.length > ok ? `<span class="red">（${CB.length - ok}件は直してください）</span>` : ''}</div>
+    <div class="tbl" style="max-height:240px;overflow:auto"><table><thead><tr><th>時間</th><th>映像の位置</th><th>対象</th><th>評価</th><th>内容</th></tr></thead><tbody>${CB.map((x) => `<tr class="${x.err ? 'warn' : ''}">
+      <td class="small num">${h((x.half ? x.half + ' ' : '') + x.time)}</td><td class="small">${x.err ? `<span class="red">${h(x.err)}</span>` : cbPos(x.pos)}</td>
+      <td class="small">${h(x.t)}</td><td class="small">${h(x.e || '—')}</td><td class="small">${h(x.text)}</td></tr>`).join('')}</tbody></table></div>` : '';
+}
+// 入る位置の表示：試合の時間（分かれば）と、映像の時間（区分が分かれているときはその区分の時間も）
+function cbPos(p) {
+  const t = toT(p.id, p.local);
+  return (tMode() === 'match' && t !== null ? '試合 ' + h(tToMatch(t)) + '／' : '') + '映像 ' + (t !== null ? h(fmtSec(t)) : h(fmtSec(p.local))) + (TL.parts.length > 1 ? '（' + h(TL.parts[tlIdx(p.id)].part) + ' ' + h(fmtSec(p.local)) + '）' : '');
+}
+async function cbFile(inp) {
+  const f = inp.files && inp.files[0]; inp.value = ''; if (!f) return;
+  try {
+    await loadXLSX();
+    const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
+    const ws = wb.Sheets['事象'] || wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+    $('#cb-text').value = rows.filter((r) => r.some((c) => String(c).trim())).map((r) => r.slice(0, 5).map((c) => String(c).replace(/[\t\r\n]+/g, ' ')).join('\t')).join('\n');
+    cbRead();
+  } catch (e) { fail(e); }
+}
+async function cbSave() {
+  const list = CB.filter((x) => !x.err).map((x) => ({ videoId: x.pos.id, sec: x.pos.local, target: x.t, cat: '', eval: x.e, text: x.text }));
+  if (!list.length) return;
+  $('#cb-ok').disabled = true;
+  try { VD.comments = await call('api_addComments', list); closeModal(); renderComments(); toast(list.length + '件のコメントを追加しました'); }
+  catch (e) { $('#cb-ok').disabled = false; fail(e); }
 }
 async function cmDel(id) {
   if (!confirm('このコメントを削除しますか？')) return;
@@ -1689,6 +1792,7 @@ ROUTES.c_matches = async (ym) => {
     ${CM.matches.length ? Object.keys(byDate).sort().map((d) => `<div class="flabel" style="margin-top:12px">${dl(d)}</div><div class="list">${byDate[d].map(([m, i]) =>
       `<a href="#" class="li" onclick="cmEdit(${i});return false;"><span class="b num" style="width:48px">${h(m.ko)}</span><div class="main"><div class="t">${card(m)}</div><div class="s">${h(m.comp)} ${h(m.name)}／${h(m.venue)}${m.venue && !m.assoc ? ' <span class="red">（会場マスタ未登録）</span>' : ''}</div></div><span class="chev">›</span></a>`).join('')}</div>`).join('')
       : empty('この月の試合はまだありません。<br>「＋ 試合を追加」か「CSV・Excelから取り込み」で登録します。')}
+    ${CM.matches.length ? `<div style="margin-top:28px;text-align:right"><button class="btn sm ghost danger" onclick="cmReset()">この月の回答・割当・レポートを消す（テストのやり直し）</button></div>` : ''}
     <datalist id="dl-venue">${CM.venues.map((v) => `<option value="${h(v)}">`).join('')}</datalist>
     <datalist id="dl-team">${CM.teams.map((v) => `<option value="${h(v)}">`).join('')}</datalist>
     <datalist id="dl-comp">${CM.comps.map((v) => `<option value="${h(v)}">`).join('')}</datalist>`);
@@ -1856,6 +1960,16 @@ function cmDeadline() {
 }
 async function cmDeadlineSave(d) {
   try { const r = await call('api_setDeadline', CM.month, d); toast('締切を ' + dl(r.deadline) + ' にしました'); closeModal(); go('c_matches', CM.month); } catch (e) { fail(e); }
+}
+// テストのやり直し：この月の試合の稼働調査の回答・割当・レポート・評価・自己評価を消し、公開・締切を最初に戻す（試合は残す）
+async function cmReset() {
+  if (!confirm(`${ymLabel(CM.month)}の試合について、次を消します。\n・稼働調査の回答\n・割当（公開の状態も）\n・アセスメントレポートとPDF、年間評価の元データ\n・審判員の自己評価\n\n試合そのものと試合映像は残ります。メールは送られません。元には戻せません。`)) return;
+  if (!confirm('本当に消しますか？（本番で使った月では押さないでください）')) return;
+  try {
+    const n = await call('api_resetMonth', CM.month);
+    toast(`消しました（回答${n['稼働調査']}・割当${n['割当']}・レポート${n['レポート']}・自己評価${n['自己評価']}）`);
+    go('c_matches', CM.month);
+  } catch (e) { fail(e); }
 }
 async function cmPublish() {
   if (!confirm(`${ymLabel(CM.month)}の試合一覧を公開し、強化審判員とアセッサー全員に稼働調査の回答依頼メールを送ります。よろしいですか？`)) return;
