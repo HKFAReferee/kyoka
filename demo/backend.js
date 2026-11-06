@@ -64,7 +64,7 @@ const SHEETS = {
   '試合':       ['試合ID', '対象月', '大会名', '試合名', '試合日', 'キックオフ', '会場', 'チームA', 'チームB'],
   '稼働調査':   ['試合ID', 'メンバーID', '回答', '備考', '回答日時'],
   '割当':       ['割当ID', '試合ID', '役割', '区分', 'メンバーID', '派遣者氏名', '派遣者所属', '依頼先協会', '通知済ID', '更新日時'],
-  'レポート':   ['試合ID', 'アセッサーID', '状態', '記入日', '提出日時', '内容JSON'],
+  'レポート':   ['試合ID', 'アセッサーID', '状態', '記入日', '提出日時', '内容JSON', 'PDF'],
   '評価':       ['試合ID', '試合日', '役割', 'メンバーID', '採用評価点'],
   '体力テスト': ['メンバーID', '測定月', '測定日', 'YoYo', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', '平均', '最速', '最遅', '入力日時'],
   '試合映像':   ['映像ID', '試合ID', '提供チーム', 'URL', '動画ID', 'KO位置秒', '後半開始秒', '登録日時', '登録者ID', '区分', '長さ秒'],
@@ -448,6 +448,8 @@ function onOpen() {
     .addItem('① 初期設定（シート作成）', 'setup')
     .addItem('② 毎朝の自動処理をオンにする', 'installTrigger')
     .addItem('URLを発行（未発行の人・チーム）', 'issueTokens')
+    .addSeparator()
+    .addItem('提出済みレポートのPDFを作る（未作成のもの）', 'makeMissingPdfs')
     .addSeparator()
     .addItem('デモデータを作る（作り直す）', 'setupDemo')
     .addItem('デモデータを消す', 'removeDemo')
@@ -866,7 +868,7 @@ function api_reportGet(t, matchId) {
   const rep = rows_('レポート').find(function (r) { return r['試合ID'] === matchId; });
   return {
     match: matchView_(match_(matchId)), crew: crew_(matchId), assessor: memberName_(assessorId),
-    status: rep ? rep['状態'] : '未作成', submittedAt: rep ? rep['提出日時'] : '',
+    status: rep ? rep['状態'] : '未作成', submittedAt: rep ? rep['提出日時'] : '', pdf: c.com && rep ? (rep['PDF'] || '') : '',
     data: rep ? JSON.parse(rep['内容JSON'] || '{}') : {},
     editable: (!rep || rep['状態'] !== '提出済') && assessorId === c.id,
     videos: videosOfMatch_(matchId), self: refSelf_(matchId),
@@ -960,6 +962,7 @@ function api_reportSave(t, matchId, data, submit) {
     committee_().forEach(function (cm) {
       mailMember_(cm, 'アセスメントレポートが提出されました', [label, 'アセッサー：' + c.name], 'c_report', matchId);
     });
+    try { reportPdf_(matchId); } catch (err) { console.error('PDF', matchId, err); }   // PDFが作れなくても提出は済ませる
     return { ok: true, status: '提出済' };
   });
 }
@@ -1630,6 +1633,103 @@ function removeDemo(quiet) {
   });
   CACHE_ = {}; DEMO_ = was;
   if (quiet !== true) { try { SpreadsheetApp.getUi().alert('デモデータを消しました。'); } catch (e) {} }
+}
+
+// ===== Pdf.gs =====
+/**
+ * 提出されたアセスメントレポートを PDF にして Google ドライブにためる。
+ * 保存先：スクリプトの持ち主のドライブ「アセスメントレポート（PDF）／年」。URL はレポートシートの「PDF」列。
+ * 委員会への報告も入る（委員会用の控え）ので、審判員には共有しない。デモのレポートは作らない。
+ */
+const PDF_ROOT = 'アセスメントレポート（PDF）';
+
+function pdfFolder_(year) {
+  const it = DriveApp.getFoldersByName(PDF_ROOT);
+  const root = it.hasNext() ? it.next() : DriveApp.createFolder(PDF_ROOT);
+  const y = root.getFoldersByName(year);
+  return y.hasNext() ? y.next() : root.createFolder(year);
+}
+
+function reportPdf_(matchId) {
+  if (DEMO_ || typeof DriveApp === 'undefined') return '';
+  const rep = rows_('レポート').find(function (r) { return r['試合ID'] === matchId; });
+  if (!rep || rep['状態'] !== '提出済') return '';
+  const m = match_(matchId);
+  const html = reportHtml_(m, rep);
+  const name = [m['試合日'], m['大会名'], m['チームA'] + '対' + m['チームB'], crew_(matchId)['主審'].name].filter(String).join('_').replace(/[\\\/:*?"<>|]/g, '') + '.pdf';
+  const blob = HtmlService.createHtmlOutput(html).getBlob().getAs('application/pdf').setName(name);
+  // 差し戻し後に出し直したときは、前のPDFをゴミ箱へ
+  const old = String(rep['PDF'] || '').match(/[-\w]{25,}/);
+  if (old) { try { DriveApp.getFileById(old[0]).setTrashed(true); } catch (e) {} }
+  const file = pdfFolder_(String(m['試合日']).slice(0, 4)).createFile(blob);
+  const o = clean_(rep); o['PDF'] = file.getUrl();
+  update_('レポート', rep._row, o);
+  return o['PDF'];
+}
+
+// メニュー：提出済みでPDFがないレポートをまとめて作る（初めて使うときは、ドライブを使う許可を求められる）
+function makeMissingPdfs() {
+  DEMO_ = false; CACHE_ = {};
+  let n = 0;
+  rows_('レポート').forEach(function (r) { if (r['状態'] === '提出済' && !r['PDF']) { reportPdf_(r['試合ID']); n++; } });
+  try { SpreadsheetApp.getUi().alert(n ? n + '件のPDFを作りました。ドライブの「' + PDF_ROOT + '」にあります。' : 'PDFを作るレポートはありませんでした（提出済みのものはすべてPDFがあります）。PDFの保存先：ドライブの「' + PDF_ROOT + '」'); } catch (e) {}
+}
+
+function esc_(v) { return String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function pre_(v) { return v ? esc_(v).replace(/\n/g, '<br>') : '<span class="mu">—</span>'; }
+
+function reportHtml_(m, rep) {
+  const d = JSON.parse(rep['内容JSON'] || '{}'), info = d.info || {}, sc = info.sc || {}, crew = crew_(m['試合ID']);
+  const tot = function (k) { return ['1', '2', 'e1', 'e2'].reduce(function (a, x) { return a + (Number(sc[k + x]) || 0); }, 0); };
+  const cellSc = function (a, b) { return (a === '' || a === undefined ? '-' : esc_(a)) + ' - ' + (b === '' || b === undefined ? '-' : esc_(b)); };
+  const roles = judged_(crew, d);
+  const h = [];
+  h.push('<html><head><meta charset="utf-8"><style>' +
+    'body{font-family:"Noto Sans JP",sans-serif;font-size:10.5pt;color:#121212;margin:0;padding:6px}h1{font-size:16pt;margin:0 0 4px;border-bottom:3px solid #0B0B0C;padding-bottom:4px}' +
+    'h2{font-size:12pt;background:#0B0B0C;color:#fff;padding:4px 8px;margin:14px 0 6px}h3{font-size:10.5pt;margin:10px 0 2px;border-left:4px solid #FFD400;padding-left:6px}' +
+    'table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:3px 6px;vertical-align:top;text-align:left}th{background:#F4F4F5;width:22%;font-weight:700}' +
+    '.mu{color:#888}.score{font-size:18pt;font-weight:700}.self{background:#F4F4F5;padding:4px 8px;margin:4px 0}.red{color:#D32F2F}p{margin:2px 0 6px}</style></head><body>');
+  h.push('<h1>アセスメントレポート</h1>');
+  h.push('<table><tr><th>試合日</th><td>' + esc_(m['試合日']) + ' ' + esc_(m['キックオフ']) + '</td><th>アセッサー</th><td>' + esc_(memberName_(rep['アセッサーID'])) + '</td></tr>' +
+    '<tr><th>大会名</th><td>' + esc_(m['大会名']) + ' ' + esc_(m['試合名']) + '</td><th>会場</th><td>' + esc_(m['会場']) + '</td></tr>' +
+    '<tr><th>対戦</th><td colspan="3">' + esc_(m['チームA']) + ' 対 ' + esc_(m['チームB']) + '</td></tr>' +
+    '<tr><th>試合結果</th><td colspan="3"><b>' + tot('a') + ' - ' + tot('b') + '</b>　（前半 ' + cellSc(sc.a1, sc.b1) + '／後半 ' + cellSc(sc.a2, sc.b2) +
+    (sc.ae1 || sc.be1 || sc.ae2 || sc.be2 ? '／延長 ' + cellSc(sc.ae1, sc.be1) + '・' + cellSc(sc.ae2, sc.be2) : '') + (sc.apk || sc.bpk ? '／PK ' + cellSc(sc.apk, sc.bpk) : '') + '）</td></tr>' +
+    '<tr><th>試合時間</th><td>' + esc_(info.time || '') + '分' + (info.ext ? '（延長 ' + esc_(info.ext) + '分）' : '') + '</td><th>記入日・提出</th><td>' + esc_(info.date || rep['記入日']) + '／' + esc_(rep['提出日時']) + '</td></tr>' +
+    '<tr><th>運営上の問題点</th><td colspan="3">' + pre_(info.ops) + '</td></tr></table>');
+  roles.forEach(function (role) {
+    const x = (d.s || {})[role] || {}, cr = crew[role];
+    const label = role === '第4審' ? '第4の審判員' : role;
+    h.push('<h2>' + label + '　' + esc_(cr.name) + (cr.affil ? '（' + esc_(cr.affil) + '）' : '') + '</h2>');
+    if (role === '第4審') { h.push('<p>' + pre_(x.comment) + '</p>'); return; }
+    const ex = num_(x.exception), ad = adopted_(x);
+    h.push('<table><tr><th>評価点</th><td class="score">' + (ad === null ? '—' : Number(ad).toFixed(1)) + '</td><th>難易度／全体のパフォーマンス</th><td>' + esc_(x.diff) + '／' + esc_(x.perf) + (ex !== null ? '<br><span class="red">例外の評価点</span>' : '') + '</td></tr></table>');
+    const sf = x.self || {}, si = sf.items || {};
+    if (role === '主審' && (sf.past || sf.challenge || sf.achieve || sf.impression || sf.review)) {
+      h.push('<h3>審判員の自己評価</h3><div class="self">');
+      [['過去3試合の指摘事項で改善できていないこと', sf.past], ['この試合でのチャレンジ', sf.challenge], ['チャレンジの達成度', sf.achieve], ['終了後の感想', sf.impression], ['振り返り', sf.review]]
+        .forEach(function (a) { if (a[1]) h.push('<b>' + a[0] + '</b><p>' + pre_(a[1]) + '</p>'); });
+      h.push('</div>');
+    }
+    const items = x.items || {};
+    (role === '主審' ? REF_ITEMS : AR_ITEMS).forEach(function (it) {
+      const v = items[it.k];
+      h.push('<h3>' + it.k + '　' + esc_(it.t) + '</h3>');
+      if (role !== '主審') { h.push('<p>' + pre_(v) + '</p>'); return; }
+      const s2 = si[it.k] || {};
+      if (s2.grade || s2.text) h.push('<div class="self"><b>自己評価 ' + esc_(s2.grade || '') + '</b><p>' + pre_(s2.text) + '</p></div>');
+      if (v && (v.good || v.bad)) h.push('<p><b>良かった点</b><br>' + pre_(v.good) + '</p><p><b>課題点</b><br>' + pre_(v.bad) + '</p>');
+      else h.push('<p><b>評価：' + esc_((v || {}).eval || '—') + '</b><br>' + pre_((v || {}).advice) + '</p>');
+    });
+    if (role === '主審') h.push('<h3>アドバイス</h3><p>' + pre_(x.advice) + '</p>');
+    h.push('<h3>難易度の理由</h3><p>' + pre_(x.reason) + '</p>');
+    if (x.note) h.push('<h3>特記事項</h3><p>' + pre_(x.note) + '</p>');
+  });
+  const ki = (d.ki || []).filter(function (k) { return k && (k.time || k.text); });
+  h.push('<h2>Key Incidents</h2>' + (ki.length ? '<table>' + ki.map(function (k) { return '<tr><th style="width:12%">' + esc_(k.time) + (/\d$/.test(k.time) ? '分' : '') + '</th><td>' + pre_(k.text) + '</td></tr>'; }).join('') + '</table>' : '<p class="mu">ありません</p>'));
+  if (d.p3) h.push('<h2>委員会への報告（審判員には非表示）</h2><p>' + pre_(d.p3) + '</p>');
+  h.push('</body></html>');
+  return h.join('');
 }
 
 

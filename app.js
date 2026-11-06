@@ -547,7 +547,7 @@ ROUTES.myreports = async () => {
   head('アセスメントレポート');
   const [r, sl] = await Promise.all([get('api_myReports'), B.ctx.ref ? get('api_mySelfList') : Promise.resolve([])]);
   // 主審を担当する試合の自己評価（試合前にチャレンジ、試合後に振り返りを書いてアセッサーに送る）
-  const selfHtml = sl.length ? `<h2 style="margin-top:0">自己評価</h2><p class="small muted">主審を担当する試合の、チャレンジと振り返りを書いてアセッサーに送ります。レポートが提出されると、その中に入ります。</p>
+  const selfHtml = sl.length ? `<h2 style="margin-top:0">自己評価</h2><p class="small muted">主審を担当する試合の、チャレンジと振り返りを書いてアセッサーに送ります。レポートが提出されると、その中に入ります。</p>${formLinks()}<div style="height:10px"></div>
     <div class="list" style="margin-bottom:20px">${sl.map((m) => matchLi(m, `<span class="pill ${m.locked ? '' : m.sentAt ? 'ok' : 'red'}">${m.locked ? 'レポートに入りました' : m.sentAt ? '送信済み' : m.savedAt ? '下書き' : '未記入'}</span>`, `go('selfeval','${m.id}')`)).join('')}</div>` : '';
   if (!r.list.length) return setMain(selfHtml + empty('まだレポートはありません。<br>担当した試合のレポートが提出されると、メールでお知らせします。'));
   setMain(`${selfHtml}${annualStats(r.annual)}<p class="small muted">年間評価は、その年に受けたレポートの評価点（例外の評価点があればそちら）の平均です。</p>
@@ -598,7 +598,7 @@ async function seSave(send, auto) {
 // 自己評価の欄だけを Excel から入れる（アセスメントレポートの「主審」シート、JFAプールの目標達成シート）
 function seImport() {
   openModal({ title: 'Excelから取り込み', body: `<p class="small" style="margin-top:0">アセスメントレポートの「主審」シート、またはJFAプール審判員の目標達成シート（この試合と同じ試合日の欄）から、自己評価の欄を入れます。</p>
-    <label class="btn primary" style="cursor:pointer">Excelファイルを選ぶ<input type="file" accept=".xlsx,.xlsm,.xls" onchange="seImportFile(this)" hidden></label><div id="se-imp" style="margin-top:10px"></div>` });
+    <label class="btn primary" style="cursor:pointer">Excelファイルを選ぶ<input type="file" accept=".xlsx,.xlsm,.xls" onchange="seImportFile(this)" hidden></label>${formLinks()}<div id="se-imp" style="margin-top:10px"></div>` });
 }
 async function seImportFile(inp) {
   const f = inp.files && inp.files[0]; inp.value = ''; if (!f) return;
@@ -772,7 +772,7 @@ ROUTES.assess = async () => {
   const later = list.filter((m) => m.status !== '提出済' && m.date > B.today).reverse();
   const done = list.filter((m) => m.status === '提出済');
   const li = (m) => matchLi(m, statusPill(m.status), `go('report','${m.id}')`);
-  setMain(`<p class="lead">試合が終わったらレポートを書いて提出してください。提出すると担当審判員と委員会に届きます。</p>
+  setMain(`<p class="lead">試合が終わったらレポートを書いて提出してください。提出すると担当審判員と委員会に届きます。</p>${formLinks()}<div style="height:12px"></div>
     ${todo.length ? `<h2 style="margin-top:0">書くもの（${todo.length}件）</h2><div class="list">${todo.map(li).join('')}</div>` : ''}
     ${later.length ? `<h2>これからの試合</h2><div class="list">${later.map(li).join('')}</div>` : ''}
     ${done.length ? `<h2>提出済み</h2><div class="list">${done.map(li).join('')}</div>` : ''}`);
@@ -851,7 +851,12 @@ function roleForm(role, crew) {
    ・アセスメントレポート（シート「共通」＋「主審」などの分析・評価シート）
    ・JFAプール審判員 自己分析＆目標達成シート（1枚に2試合。試合日が同じ欄の Coach コメントと自己分析）
    読み取った内容を確認してから、入力欄に入れる（提出はいつもどおり画面から） */
-let RX = null, RXM = null;   // RXM：自己評価のページから使うときの試合
+let RX = null, RXM = null;
+// 書式（空のExcel）。forms/ に置いてある（デモのページからは一つ上）
+function formLinks() {
+  const base = /\/demo\//.test(location.pathname) ? '../forms/' : 'forms/';
+  return `<div class="row small" style="gap:6px;flex-wrap:wrap;margin:8px 0 0"><span class="muted">書式：</span><a class="btn sm ghost" href="${base}assessment_report.xlsx" download="アセスメントレポート書式.xlsx">アセスメントレポート</a><a class="btn sm ghost" href="${base}jfa_pool_sheet.xlsx" download="JFAプール目標達成シート書式.xlsx">JFAプール目標達成シート</a></div>`;
+}   // RXM：自己評価のページから使うときの試合
 function loadXLSX() {
   if (window.XLSX) return Promise.resolve();
   return new Promise((ok, ng) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = ok; sc.onerror = () => ng(new Error('Excelを読む部品を読み込めませんでした。通信状態を確認してください。')); document.head.appendChild(sc); });
@@ -861,7 +866,7 @@ function rxOpen() {
   openModal({ title: 'Excelから取り込み', body: `
     <p class="small" style="margin-top:0">記入済みのExcelを選ぶと、読み取った内容を確認してから入力欄に入れます。入れたあとも画面で直せます。</p>
     <ul class="small muted" style="padding-left:18px;margin:0 0 12px"><li>アセスメントレポート（シート「共通」と、主審の「レフェリング分析・評価シート」）</li><li>JFAプール審判員 自己分析＆目標達成シート（この試合と同じ試合日の欄を読みます）</li></ul>
-    <label class="btn primary" style="cursor:pointer">Excelファイルを選ぶ<input type="file" accept=".xlsx,.xlsm,.xls" onchange="rxFile(this)" hidden></label>
+    <label class="btn primary" style="cursor:pointer">Excelファイルを選ぶ<input type="file" accept=".xlsx,.xlsm,.xls" onchange="rxFile(this)" hidden></label>${formLinks()}
     <div id="rx-prev" style="margin-top:12px"></div>`,
     foot: `<button class="btn" onclick="closeModal()">やめる</button><button class="btn primary" id="rx-ok" onclick="rxApply()" disabled>入力欄に入れる</button>` });
 }
@@ -1073,7 +1078,7 @@ ROUTES.report = async (matchId) => {
     const d = RP.data || {}; const half = d.info && d.info.time ? Number(d.info.time) / 2 : 45;
     $('#tools').innerHTML = statusPill(RP.status);
     setMain(`${RP.status === '未作成' ? `<div class="card">${infoRO(RP.match, {}, RP.assessor, '')}</div>` + empty('まだ作成されていません') : `
-      ${B.ctx.com && RP.status === '提出済' ? `<div class="row" style="margin-bottom:12px"><span class="small muted">提出 ${h(RP.submittedAt)}</span><span class="spacer"></span><button class="btn danger sm" onclick="rpRevert()">アセッサーに差し戻す</button></div>` : ''}
+      ${B.ctx.com && RP.status === '提出済' ? `<div class="row" style="margin-bottom:12px"><span class="small muted">提出 ${h(RP.submittedAt)}</span><span class="spacer"></span>${RP.pdf ? `<a class="btn sm" href="${h(RP.pdf)}" target="_blank" rel="noopener">PDFを開く ↗</a>` : ''}<button class="btn danger sm" onclick="rpRevert()">アセッサーに差し戻す</button></div>` : ''}
       <div class="card">${infoRO(RP.match, d.info || {}, RP.assessor, '')}</div>${videoBtns(RP.videos)}
       ${judgedRoles(crew, d.others).map((r) => `<div class="card">${sectionRO(r, (d.s || {})[r] || {}, crew[r].name)}</div>`).join('')}
       <div class="card">${kiRO(d.ki, RP.videos, half)}</div>
