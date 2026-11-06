@@ -1691,23 +1691,40 @@ ROUTES.c_matches = async (ym) => {
     <datalist id="dl-team">${CM.teams.map((v) => `<option value="${h(v)}">`).join('')}</datalist>
     <datalist id="dl-comp">${CM.comps.map((v) => `<option value="${h(v)}">`).join('')}</datalist>`);
 };
+/* 試合の入力：大会名・会場・チームはプルダウン（マスタと登録済みの大会から）。一覧にない名前は「＋ 一覧にない名前を入力」で書ける */
+function pickSel(id, groups, cur, ph) {
+  const all = groups.flatMap((g) => g[1]);
+  const other = cur && !all.includes(cur);
+  const opts = (list) => list.map((v) => `<option ${v === cur ? 'selected' : ''}>${h(v)}</option>`).join('');
+  return `<select id="${id}" onchange="$('#${id}-o').hidden=this.value!=='__other';if(this.value==='__other')$('#${id}-o').focus()">
+      <option value="">${ph || '選んでください'}</option>${groups.map(([label, list]) => list.length ? (label ? `<optgroup label="${h(label)}">${opts(list)}</optgroup>` : opts(list)) : '').join('')}
+      <option value="__other" ${other ? 'selected' : ''}>＋ 一覧にない名前を入力</option></select>
+    <input id="${id}-o" value="${other ? h(cur) : ''}" placeholder="名前を入力" style="margin-top:6px" ${other ? '' : 'hidden'}>`;
+}
+function selVal(id) { const s = $('#' + id); return s.value === '__other' ? $('#' + id + '-o').value.trim() : s.value; }
+function selSet(id, v) { const s = $('#' + id); if (!s) return; if (!v) { s.value = ''; return; } if ([...s.options].some((o) => o.value === v || o.text === v)) { s.value = v; $('#' + id + '-o').hidden = true; } else { s.value = '__other'; $('#' + id + '-o').value = v; $('#' + id + '-o').hidden = false; } }
 function cmEdit(i) {
   const last = CM.matches[CM.matches.length - 1] || {};
   const m = i >= 0 ? CM.matches[i] : { date: '', ko: '', comp: last.comp || '', name: '', venue: '', a: '', b: '' };
+  const tg = Object.entries(CM.teamGroups || {});
+  const teams = tg.length ? tg : [['', CM.teams]];
   openModal({ title: i >= 0 ? '試合を編集' : '試合を追加', body: `
-    <div class="grid2"><div class="field"><label>試合日</label><input type="date" id="me-date" value="${h(m.date)}" min="${CM.month}-01" max="${CM.month}-31"></div><div class="field"><label>キックオフ</label><input type="time" id="me-ko" value="${h(m.ko)}"></div></div>
-    <div class="grid2"><div class="field"><label>大会名</label><input id="me-comp" list="dl-comp" value="${h(m.comp)}"></div><div class="field"><label>試合名（節・回戦）</label><input id="me-name" value="${h(m.name)}" placeholder="例：第10節"></div></div>
-    <div class="field"><label>会場</label><input id="me-venue" list="dl-venue" value="${h(m.venue)}"></div>
-    <div class="grid2"><div class="field"><label>チームA（ホーム）</label><input id="me-a" list="dl-team" value="${h(m.a)}"></div><div class="field"><label>チームB（アウェイ）</label><input id="me-b" list="dl-team" value="${h(m.b)}"></div></div>
+    <div class="grid2"><div class="field"><label>試合日</label><input type="date" id="me-date" value="${h(m.date)}"></div><div class="field"><label>キックオフ</label><input type="time" id="me-ko" value="${h(m.ko)}" step="300"></div></div>
+    <div class="grid2"><div class="field"><label>大会名</label>${pickSel('me-comp', [['', CM.comps]], m.comp)}</div><div class="field"><label>試合名（節・回戦）</label><input id="me-name" value="${h(m.name)}" placeholder="例：第10節"></div></div>
+    <div class="field"><label>会場</label>${pickSel('me-venue', [['', CM.venues]], m.venue)}</div>
+    <div class="grid2"><div class="field"><label>チームA（ホーム）</label>${pickSel('me-a', teams, m.a)}</div><div class="field"><label>チームB（アウェイ）</label>${pickSel('me-b', teams, m.b)}</div></div>
     ${i >= 0 ? `<button class="btn danger sm" onclick="cmDelMatch('${m.id}')">この試合を削除</button>` : ''}`,
     foot: `${i < 0 ? `<button class="btn" onclick="cmSaveOne('',true)">保存して続けて追加</button>` : ''}<button class="btn primary" onclick="cmSaveOne('${m.id || ''}')">保存</button>` });
 }
 async function cmSaveOne(id, again) {
-  const x = { id, date: $('#me-date').value, ko: $('#me-ko').value, comp: $('#me-comp').value.trim(), name: $('#me-name').value.trim(), venue: $('#me-venue').value.trim(), a: $('#me-a').value.trim(), b: $('#me-b').value.trim() };
+  const x = { id, date: $('#me-date').value, ko: $('#me-ko').value, comp: selVal('me-comp'), name: $('#me-name').value.trim(), venue: selVal('me-venue'), a: selVal('me-a'), b: selVal('me-b') };
+  if (!x.date) return toast('試合日を選んでください', true);
+  if (x.a && x.a === x.b) return toast('チームAとチームBが同じです', true);
   try {
     const r = await call('api_saveMatches', [x]); if (r.errors.length) return toast(r.errors[0], true);
+    if (r.skipped) return toast('同じ日・同じ対戦の試合がすでに登録されています', true);
     toast('保存しました');
-    if (again) { await ROUTES.c_matches(CM.month); cmEdit(-1); $('#me-date').value = x.date; $('#me-ko').value = x.ko; $('#me-venue').value = x.venue; $('#me-comp').value = x.comp; return; }
+    if (again) { await ROUTES.c_matches(x.date.slice(0, 7) || CM.month); cmEdit(-1); $('#me-date').value = x.date; $('#me-ko').value = x.ko; selSet('me-venue', x.venue); selSet('me-comp', x.comp); $('#me-name').value = x.name; return; }
     closeModal(); go('c_matches', x.date.slice(0, 7) || CM.month);
   } catch (e) { fail(e); }
 }

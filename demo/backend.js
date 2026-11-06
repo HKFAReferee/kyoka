@@ -988,8 +988,12 @@ function api_matches(t, ym) {
     const v = matchView_(m); v.assoc = venueAssoc_(v.venue); return v;
   }).sort(sortByDate_);
   const teams = rows_('チーム').map(function (r) { return r['チーム名']; });
+  // 試合の入力フォームのプルダウン用：チームは所属リーグごと
+  const teamGroups = {}; rows_('チーム').forEach(function (r) { if (!r['チーム名']) return; const g = r['所属リーグ'] || 'その他'; (teamGroups[g] = teamGroups[g] || []).push(r['チーム名']); });
   const comps = {}; rows_('試合').forEach(function (r) { comps[r['大会名']] = 1; });
-  return { month: ym, matches: matches, venues: venues, teams: teams, comps: Object.keys(comps),
+  rows_('チーム').forEach(function (r) { const l = String(r['所属リーグ'] || '').replace(/（.*）$/, ''); if (l) comps[l] = 1; });   // 大会名の候補：登録済みの大会と、チームの所属リーグ
+  delete comps[''];
+  return { month: ym, matches: matches, venues: venues, teams: teams, teamGroups: teamGroups, comps: Object.keys(comps).sort(),
     listPublished: listPublished_(ym), assignPublished: assignPublished_(ym), deadline: surveyDeadline_(ym) };
 }
 
