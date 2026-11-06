@@ -70,6 +70,7 @@ const SHEETS = {
   '試合映像':   ['映像ID', '試合ID', '提供チーム', 'URL', '動画ID', 'KO位置秒', '後半開始秒', '登録日時', '登録者ID', '区分', '長さ秒'],
   '映像コメント': ['コメントID', '映像ID', '秒', '対象', '分類', '評価', 'コメント', '記入者ID', '日時'],
   '事例':       ['事例ID', '映像ID', '開始秒', '終了秒', 'タイトル', 'タグ', '正しい判定', '解説', '資料URL', '登録者ID', '日時'],
+  '自己評価':   ['試合ID', 'メンバーID', '内容JSON', '更新日時', '送信日時'],
 };
 const BOOL_COLS = ['審判員', 'アセッサー', '委員会', '在籍'];
 
@@ -138,7 +139,12 @@ function ss_() {
 }
 
 function sh_(name) {
-  const s = ss_().getSheetByName(name);
+  let s = ss_().getSheetByName(name);
+  if (!s && name === '自己評価') {   // 後から足したシートは、初めて使うときに作る
+    s = ss_().insertSheet(name);
+    s.getRange(1, 1, 1, SHEETS[name].length).setValues([SHEETS[name]]).setFontWeight('bold').setBackground('#E8F4FB');
+    s.setFrozenRows(1);
+  }
   if (!s) throw new Error('シート「' + name + '」がありません。メニューの「初期設定」を実行してください。');
   return s;
 }
@@ -173,7 +179,7 @@ function readRows_(name) {
 /* デモ：ID が DEMO で始まるメンバー・試合（と、その稼働調査・割当・レポートなど）はデモ用。
  * デモの人がアクセスしたときはデモのデータだけ、それ以外のときはデモ以外のデータだけを見せる。月管理は「DEMO:対象月」の行がデモ用 */
 let DEMO_ = false;
-const DEMO_KEY_ = { 'メンバー': 'ID', '試合': '試合ID', '稼働調査': '試合ID', '割当': '試合ID', 'レポート': '試合ID', '評価': '試合ID', '試合映像': '試合ID', '体力テスト': 'メンバーID' };
+const DEMO_KEY_ = { 'メンバー': 'ID', '試合': '試合ID', '自己評価': '試合ID', '稼働調査': '試合ID', '割当': '試合ID', 'レポート': '試合ID', '評価': '試合ID', '試合映像': '試合ID', '体力テスト': 'メンバーID' };
 function isDemoId_(v) { return /^DEMO/.test(String(v || '')); }
 function demoFilter_(name, list) {
   const key = DEMO_KEY_[name];
@@ -569,6 +575,12 @@ function api_home(t) {
     if (!rows_('体力テスト').some(function (r) { return r['メンバーID'] === c.id && r['測定月'] === cur; }))
       res.notices.push({ page: 'fitness', text: cur.replace('-', '年') + '月の体力テストが未入力です（締切 ' + cur.slice(5) + '/' + lastDay_(cur) + '）' });
   }
+  if (c.ref) {
+    // 主審として担当する試合の自己評価：レポートが出るまで、まだアセッサーに送っていないもの（試合の1週間前から）
+    const soon = Utilities.formatDate(new Date(Date.now() + 7 * 86400000), TZ, 'yyyy-MM-dd');
+    const todo = api_mySelfList(t).filter(function (x) { return !x.sentAt && !x.locked && x.date <= soon; });
+    if (todo.length) res.notices.push({ page: 'selfeval', arg: todo[0].id, text: '自己評価を書いてアセッサーに送ってください（' + todo.map(function (x) { return x.date.slice(5).replace('-', '/') + ' ' + x.a + ' 対 ' + x.b; }).join('、') + '）' });
+  }
   if (c.asr) {
     const pending = api_myAssessments(t).filter(function (x) { return x.status !== '提出済' && x.date <= today; });
     if (pending.length) res.notices.push({ page: 'assess', text: '未提出のアセスメントレポートが' + pending.length + '件あります' });
@@ -711,6 +723,49 @@ function api_myReport(t, matchId) {
   };
 }
 
+/* ───────── 審判員：自己評価（主審として担当する試合。試合前にチャレンジ、試合後に振り返り → アセッサーに送る）
+ * レポートが提出されると、送った自己評価がレポートの「審判員の自己評価」に入る。提出後は変えられない */
+
+function selfRow_(matchId, memberId) { return rows_('自己評価').find(function (r) { return r['試合ID'] === matchId && r['メンバーID'] === memberId; }); }
+function selfView_(r) { return r ? { data: JSON.parse(r['内容JSON'] || '{}'), savedAt: r['更新日時'], sentAt: r['送信日時'] } : { data: {}, savedAt: '', sentAt: '' }; }
+function reportDone_(matchId) { const rep = rows_('レポート').find(function (r) { return r['試合ID'] === matchId; }); return !!(rep && rep['状態'] === '提出済'); }
+function myRefMatch_(c, matchId) {
+  const s = slotsOf_(matchId), m = match_(matchId);
+  if (!m || !s['主審'] || s['主審'].kind !== '強化' || s['主審'].memberId !== c.id || !assignPublished_(m['対象月'])) throw new Error('主審として担当する試合だけ書けます。');
+  return m;
+}
+function api_mySelfList(t) {
+  const c = ctx_(t); need_(c, 'ref');
+  return rows_('割当').filter(function (r) { return r['役割'] === '主審' && r['区分'] === '強化' && r['メンバーID'] === c.id; }).map(function (r) {
+    const m = match_(r['試合ID']);
+    if (!m || !assignPublished_(m['対象月'])) return null;
+    const v = matchView_(m), sv = selfView_(selfRow_(v.id, c.id));
+    v.savedAt = sv.savedAt; v.sentAt = sv.sentAt; v.locked = reportDone_(v.id);
+    return v;
+  }).filter(Boolean).sort(sortByDate_).reverse();
+}
+function api_selfGet(t, matchId) {
+  const c = ctx_(t); need_(c, 'ref');
+  const m = myRefMatch_(c, matchId), sv = selfView_(selfRow_(matchId, c.id));
+  const asr = slotsOf_(matchId)['アセッサー'];
+  return { match: matchView_(m), data: sv.data, savedAt: sv.savedAt, sentAt: sv.sentAt, locked: reportDone_(matchId), assessor: asr && asr.kind === '強化' ? memberName_(asr.memberId) : '' };
+}
+function api_selfSave(t, matchId, data, send) {
+  const c = ctx_(t); need_(c, 'ref');
+  myRefMatch_(c, matchId);
+  if (reportDone_(matchId)) throw new Error('レポートが提出されたため、自己評価は変えられません。');
+  const d = data || {}, e = [];
+  ['challenge', 'impression', 'past', 'review'].forEach(function (k) { if (len_(d[k]) > LIMITS.self) e.push('1000字を超えている欄があります'); });
+  REF_ITEMS.forEach(function (it) { if (len_(((d.items || {})[it.k] || {}).text) > LIMITS.self) e.push(it.k + '：1000字を超えています'); });
+  if (e.length) throw new Error(e[0]);
+  return withLock_(function () {
+    const r = selfRow_(matchId, c.id);
+    const o = { '試合ID': matchId, 'メンバーID': c.id, '内容JSON': JSON.stringify(d), '更新日時': now_(), '送信日時': send ? now_() : (r ? r['送信日時'] : '') };
+    if (r) update_('自己評価', r._row, o); else append_('自己評価', o);
+    return { savedAt: o['更新日時'], sentAt: o['送信日時'] };
+  });
+}
+
 /* ───────── 体力テスト ───────── */
 
 function fitnessView_(r) {
@@ -814,8 +869,15 @@ function api_reportGet(t, matchId) {
     status: rep ? rep['状態'] : '未作成', submittedAt: rep ? rep['提出日時'] : '',
     data: rep ? JSON.parse(rep['内容JSON'] || '{}') : {},
     editable: (!rep || rep['状態'] !== '提出済') && assessorId === c.id,
-    videos: videosOfMatch_(matchId),
+    videos: videosOfMatch_(matchId), self: refSelf_(matchId),
   };
+}
+// 主審が送った自己評価（送っていなければ null）
+function refSelf_(matchId) {
+  const s = slotsOf_(matchId);
+  if (!s['主審'] || s['主審'].kind !== '強化' || !s['主審'].memberId) return null;
+  const sv = selfView_(selfRow_(matchId, s['主審'].memberId));
+  return sv.sentAt ? sv : null;
 }
 
 function adopted_(sec) {
@@ -872,6 +934,8 @@ function api_reportSave(t, matchId, data, submit) {
   return withLock_(function () {
     const rep = rows_('レポート').find(function (r) { return r['試合ID'] === matchId; });
     if (rep && rep['状態'] === '提出済') throw new Error('提出済みのレポートは変更できません。修正が必要なときは委員会に差し戻しを依頼してください。');
+    const rs = refSelf_(matchId);
+    if (rs && crew['主審'].evaluated) { data.s = data.s || {}; data.s['主審'] = data.s['主審'] || {}; data.s['主審'].self = rs.data; }
     if (submit) {
       const errs = validateReport_(data, crew);
       if (errs.length) return { ok: false, errors: errs };

@@ -22,14 +22,14 @@ async function call(fn, ...args) {
   } catch (e) {
     throw new Error('サーバーに接続できませんでした。通信状態を確認してください。');
   }
-  if (!READS.test(fn) && !/^api_(boot|video|reportGet|setDuration)$/.test(fn)) { MEMO.clear(); WGEN++; GEN++; }
+  if (!READS.test(fn) && !/^api_(boot|video|reportGet|selfGet|setDuration)$/.test(fn)) { MEMO.clear(); WGEN++; GEN++; }
   const j = await res.json().catch(() => ({ ok: false, error: 'サーバーの応答を読み取れませんでした。' }));
   if (!j.ok) throw new Error(j.error || 'エラーが発生しました。');
   return j.result;
 }
 /* 読み込んだデータを覚えておき、次に開くときはすぐ表示する（裏で最新を取り直し、変わっていれば描き直す）。
    書き込みの API を呼んだら覚えたものは捨てる。 */
-const READS = /^api_(home|survey|assignTable|myReports|myReport|fitness|fitnessResults|myAssessments|months|matches|surveyStatus|assignBoard|dispatch|reports|karte|master|videos|cases|videoMatches|teamHome)$/;
+const READS = /^api_(home|mySelfList|survey|assignTable|myReports|myReport|fitness|fitnessResults|myAssessments|months|matches|surveyStatus|assignBoard|dispatch|reports|karte|master|videos|cases|videoMatches|teamHome)$/;
 const MEMO = new Map();      // キー → { s: JSON文字列, at: 取得時刻 }
 let GEN = 0;                 // ページを移るたび・書き込むたびに進める（古い描き直しを捨てるため）
 let WGEN = 0;                // 書き込むたびに進める（書き込み前に取りに行ったデータは覚えない）
@@ -184,7 +184,7 @@ function icon(k, size = 20) { return `<svg class="ic" width="${size}" height="${
 
 const PAGES = {
   home: ['ホーム', 'home'], survey: ['稼働調査', 'survey'], myreports: ['レポート', 'report'], fitness: ['体力テスト', 'fitness'],
-  assess: ['担当試合', 'assess'], table: ['割当表', 'table'], videos: ['試合映像', 'videos'], cases: ['事例ライブラリ', 'cases'],
+  assess: ['担当試合', 'assess'], selfeval: ['自己評価', 'report'], table: ['割当表', 'table'], videos: ['試合映像', 'videos'], cases: ['事例ライブラリ', 'cases'],
   c_matches: ['試合一覧', 'matches'], c_survey: ['稼働状況', 'status'], c_assign: ['割当', 'assign'], c_dispatch: ['派遣依頼', 'dispatch'],
   c_reports: ['レポート', 'report'], c_fitness: ['体力テスト結果', 'fitness'], c_karte: ['審判員カルテ', 'karte'], c_master: ['マスタ', 'master'],
   team: ['映像の提供', 'team'],
@@ -394,20 +394,20 @@ function kiToSec(time, video, halfLen) {
 }
 
 /* ───────── ホーム ───────── */
-function todo(page, title, sub, label) {
-  return `<a class="todo" href="#" onclick="go('${page}');return false;"><span class="ic">!</span><div class="main"><div class="t">${h(title)}</div>${sub ? `<div class="s">${h(sub)}</div>` : ''}</div><span class="go">${label || '開く'} ›</span></a>`;
+function todo(page, title, sub, label, arg) {
+  return `<a class="todo" href="#" onclick="go('${page}'${arg ? `,'${h(arg)}'` : ''});return false;"><span class="ic">!</span><div class="main"><div class="t">${h(title)}</div>${sub ? `<div class="s">${h(sub)}</div>` : ''}</div><span class="go">${label || '開く'} ›</span></a>`;
 }
 function matchLi(m, right, onclick) {
   return `<${onclick ? 'a href="#" onclick="' + onclick + ';return false;"' : 'div'} class="li">${dateBox(m.date)}<div class="main"><div class="t">${card(m)}</div><div class="s">${h(m.ko)}　${h(m.comp)} ${h(m.name)}${m.venue ? '／' + h(m.venue) : ''}</div></div>${right || ''}${onclick ? '<span class="chev">›</span></a>' : '</div>'}`;
 }
-const NOTICE_LABEL = { survey: '回答する', fitness: '入力する', assess: '書く' };
+const NOTICE_LABEL = { survey: '回答する', fitness: '入力する', assess: '書く', selfeval: '書く' };
 ROUTES.home = async () => {
   head('ホーム');
   const r = await get('api_home');
   BADGE = {}; r.notices.forEach((x) => (BADGE[x.page] = true));
   const c = B.ctx;
   let html = `<p class="muted" style="margin-bottom:4px">${h(c.name)} さん</p><p class="small muted" style="margin-bottom:20px">${[c.ref && '強化審判員', c.asr && 'アセッサー', c.com && '委員会'].filter(Boolean).join('・')}</p>`;
-  const todos = r.notices.map((x) => todo(x.page, x.text, '', NOTICE_LABEL[x.page]));
+  const todos = r.notices.map((x) => todo(x.page, x.text, '', NOTICE_LABEL[x.page], x.arg));
   if (r.com) {
     if (r.com.reportsPending) { todos.push(todo('c_reports', `未提出のアセスメントレポート ${r.com.reportsPending}件`, '試合日を過ぎてもアセッサーが提出していないもの')); BADGE.c_reports = r.com.reportsPending; }
     if (r.com.dispatchPending) { todos.push(todo('c_dispatch', `派遣者が未定の地区派遣 ${r.com.dispatchPending}件`, '地区協会からの返事を待っているもの')); BADGE.c_dispatch = r.com.dispatchPending; }
@@ -545,11 +545,78 @@ function annualStats(annual) {
 function scoreText(s) { return s === null || s === undefined ? '—' : Number(s).toFixed(1); }
 ROUTES.myreports = async () => {
   head('アセスメントレポート');
-  const r = await get('api_myReports');
-  if (!r.list.length) return setMain(empty('まだレポートはありません。<br>担当した試合のレポートが提出されると、メールでお知らせします。'));
-  setMain(`${annualStats(r.annual)}<p class="small muted">年間評価は、その年に受けたレポートの評価点（例外の評価点があればそちら）の平均です。</p>
+  const [r, sl] = await Promise.all([get('api_myReports'), B.ctx.ref ? get('api_mySelfList') : Promise.resolve([])]);
+  // 主審を担当する試合の自己評価（試合前にチャレンジ、試合後に振り返りを書いてアセッサーに送る）
+  const selfHtml = sl.length ? `<h2 style="margin-top:0">自己評価</h2><p class="small muted">主審を担当する試合の、チャレンジと振り返りを書いてアセッサーに送ります。レポートが提出されると、その中に入ります。</p>
+    <div class="list" style="margin-bottom:20px">${sl.map((m) => matchLi(m, `<span class="pill ${m.locked ? '' : m.sentAt ? 'ok' : 'red'}">${m.locked ? 'レポートに入りました' : m.sentAt ? '送信済み' : m.savedAt ? '下書き' : '未記入'}</span>`, `go('selfeval','${m.id}')`)).join('')}</div>` : '';
+  if (!r.list.length) return setMain(selfHtml + empty('まだレポートはありません。<br>担当した試合のレポートが提出されると、メールでお知らせします。'));
+  setMain(`${selfHtml}${annualStats(r.annual)}<p class="small muted">年間評価は、その年に受けたレポートの評価点（例外の評価点があればそちら）の平均です。</p>
     <h2>受け取ったレポート</h2><div class="list">${r.list.map((m) => matchLi(m, `<div style="text-align:right"><div class="small muted">${h(m.role)}</div><div class="b blue num" style="font-size:18px">${scoreText(m.score)}</div></div>`, `go('myreport','${m.id}')`)).join('')}</div>`);
 };
+
+/* ───────── 審判員：自己評価（主審を担当する試合） ───────── */
+let SE = null;
+function selfFields(L) {
+  return `<div class="card"><div class="field"><label>過去3試合の指摘事項で改善できていないこと</label>${ta('past', L.self)}</div>
+      <div class="field"><label>この試合でのチャレンジ</label>${ta('challenge', L.self)}</div></div>
+    <div class="card"><h2>試合後</h2><div class="field"><label>チャレンジの達成度</label>${segPick('achieve', GRADES)}<div class="hint">A：目標を大きく上回った（130％以上）／B：目標を超えた（110％以上）／C：ほぼ目標に達した（95〜109％）／D：目標を下回った（76〜95％）／E：目標を大きく下回った（75％以下）</div></div>
+      <div class="field"><label>終了後の感想（最もよかったこと・改善が必要なこと・次にチャレンジしたいこと）</label>${ta('impression', L.self, '', 140)}</div>
+      <div class="field"><label>振り返り</label>${ta('review', L.self)}</div></div>
+    <div class="card"><h2>項目ごとの自己評価</h2>${B.consts.REF_ITEMS.map((x) => `<div class="item"><div class="ttl">${x.k}　${h(x.t)}</div><div class="desc">${h(x.d)}</div>
+      <div class="field"><label>自己評価</label>${segPick(`items.${x.k}.grade`, GRADES)}</div><div class="field"><label>理由と課題</label>${ta(`items.${x.k}.text`, L.self)}</div></div>`).join('')}</div>`;
+}
+ROUTES.selfeval = async (matchId) => {
+  if (!matchId) return go('myreports');
+  head('自己評価', ['myreports']);
+  SE = await call('api_selfGet', matchId);
+  SE.id = matchId; SE.dirty = false;
+  const L = B.consts.LIMITS;
+  $('#tools').innerHTML = SE.locked ? '<span class="pill">確定</span>' : SE.sentAt ? '<span class="pill ok">送信済み</span>' : '<span class="pill red">未送信</span>';
+  setMain(`<div class="row" style="margin-bottom:12px;flex-wrap:wrap">${dateBox(SE.match.date)}<div style="flex:1;min-width:220px"><div class="b">${card(SE.match)}</div><div class="small muted">${h(SE.match.comp)} ${h(SE.match.name)}／${h(SE.match.venue)}${SE.assessor ? `　アセッサー：${h(SE.assessor)}` : ''}</div></div>${SE.locked ? '' : '<button class="btn sm" style="margin-left:auto" onclick="seImport()">Excelから取り込み</button>'}</div>
+    <div class="card ${SE.locked ? '' : 'pale'} small" style="margin-bottom:12px">${SE.locked ? 'レポートが提出され、この自己評価はレポートに入りました。もう変えられません。'
+      : `試合前に「チャレンジ」を、試合後に「達成度・感想・振り返り・項目ごとの自己評価」を書いて、<b>「アセッサーに送る」</b>を押してください。レポートが提出されるまでは、直して送り直せます。${SE.sentAt ? `<div class="b blue" style="margin-top:4px">送信済み（${h(SE.sentAt)}）</div>` : ''}`}</div>
+    <div id="se-form">${selfFields(L)}</div>
+    ${SE.locked ? '' : `<div class="actionbar"><span class="msg" id="se-state">${SE.savedAt ? '保存済み（' + h(SE.savedAt) + '）' : ''}</span><button class="btn" onclick="seSave(false)">途中保存</button><button class="btn primary" onclick="seSave(true)">アセッサーに送る</button></div>`}`);
+  $$('#se-form [data-k]').forEach((el) => { const v = getPath(SE.data, el.dataset.k); if (v !== undefined && v !== null) el.value = v; if (el.tagName === 'TEXTAREA' && el.dataset.max) cnt(el); if (SE.locked) el.disabled = true; });
+  $$('#se-form [data-seg]').forEach((sg) => { const v = $(`[data-k="${sg.dataset.seg}"]`).value; sg.querySelectorAll('button').forEach((b) => { b.classList.toggle('on', b.textContent === v); if (SE.locked) b.disabled = true; }); });
+  LEAVE = () => { if (SE && SE.dirty && !SE.locked) seSave(false, true); SE = null; };
+};
+function seCollect() { const d = {}; $$('#se-form [data-k]').forEach((el) => setPath(d, el.dataset.k, el.value)); return d; }
+function seDirty() { if (!SE || SE.locked) return; SE.dirty = true; if ($('#se-state')) $('#se-state').textContent = '未保存の変更があります'; seAutosave(); }
+const seAutosave = debounce(() => { if (SE && SE.dirty && !SE.locked) seSave(false, true); }, 4000);
+async function seSave(send, auto) {
+  seAutosave.cancel();
+  if (!SE) return;
+  const id = SE.id, data = seCollect();
+  if (send && !Object.values(data).some((v) => v && (typeof v === 'string' ? v.trim() : Object.values(v).some((x) => x.grade || x.text)))) return toast('何か書いてから送ってください', true);
+  try {
+    const r = await call('api_selfSave', id, data, !!send);
+    if (SE && SE.id === id) { SE.dirty = false; SE.savedAt = r.savedAt; SE.sentAt = r.sentAt; if ($('#se-state')) $('#se-state').textContent = (auto ? '自動保存しました（' : '保存しました（') + r.savedAt.slice(11) + '）'; }
+    if (send) { toast('アセッサーに送りました'); go('selfeval', id); } else if (!auto) toast('保存しました');
+  } catch (e) { if (!auto) fail(e); }
+}
+// 自己評価の欄だけを Excel から入れる（アセスメントレポートの「主審」シート、JFAプールの目標達成シート）
+function seImport() {
+  openModal({ title: 'Excelから取り込み', body: `<p class="small" style="margin-top:0">アセスメントレポートの「主審」シート、またはJFAプール審判員の目標達成シート（この試合と同じ試合日の欄）から、自己評価の欄を入れます。</p>
+    <label class="btn primary" style="cursor:pointer">Excelファイルを選ぶ<input type="file" accept=".xlsx,.xlsm,.xls" onchange="seImportFile(this)" hidden></label><div id="se-imp" style="margin-top:10px"></div>` });
+}
+async function seImportFile(inp) {
+  const f = inp.files && inp.files[0]; inp.value = ''; if (!f) return;
+  $('#se-imp').innerHTML = '<p class="loading">読み取り中…</p>';
+  try {
+    await loadXLSX();
+    const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
+    RXM = SE.match;
+    const x = wb.Sheets['共通'] ? rxReport(wb) : rxPool(wb);
+    const sf = getPath(x.data, 's.主審.self') || {};
+    let n = 0;
+    const walk = (o, path) => Object.keys(o).forEach((k) => { const v = o[k], pth = path ? path + '.' + k : k; if (v && typeof v === 'object') walk(v, pth); else if (v) { const el = $(`#se-form [data-k="${pth}"]`); if (el) { el.value = v; n++; if (el.dataset.max) cnt(el); } } });
+    walk(sf, '');
+    $$('#se-form [data-seg]').forEach((sg) => { const v = $(`[data-k="${sg.dataset.seg}"]`).value; sg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.textContent === v)); });
+    if (!n) throw new Error('自己評価の欄に書かれた内容が見つかりませんでした');
+    closeModal(); seDirty(); toast(`${n}か所を入れました。確認して「アセッサーに送る」を押してください`);
+  } catch (e) { $('#se-imp').innerHTML = `<div class="errs">${h(e.message || String(e))}</div>`; } finally { RXM = null; }
+}
 
 function sectionRO(role, sec, crewName) {
   const C = B.consts;
@@ -784,7 +851,7 @@ function roleForm(role, crew) {
    ・アセスメントレポート（シート「共通」＋「主審」などの分析・評価シート）
    ・JFAプール審判員 自己分析＆目標達成シート（1枚に2試合。試合日が同じ欄の Coach コメントと自己分析）
    読み取った内容を確認してから、入力欄に入れる（提出はいつもどおり画面から） */
-let RX = null;
+let RX = null, RXM = null;   // RXM：自己評価のページから使うときの試合
 function loadXLSX() {
   if (window.XLSX) return Promise.resolve();
   return new Promise((ok, ng) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = ok; sc.onerror = () => ng(new Error('Excelを読む部品を読み込めませんでした。通信状態を確認してください。')); document.head.appendChild(sc); });
@@ -868,8 +935,9 @@ function rxPool(wb) {
     }
   });
   if (!blocks.length) throw new Error('このExcelは読み取れませんでした。アセスメントレポート（シート「共通」）か、JFAプール審判員の目標達成シートを選んでください。');
-  const b = blocks.find((x) => x.date === RP.match.date);
-  if (!b) throw new Error(`この試合（${dl(RP.match.date)}）と同じ試合日の欄が見つかりませんでした。Excelにある試合日：${blocks.map((x) => x.date ? dl(x.date) : '（未記入）').join('、')}`);
+  const mt = RXM || RP.match;
+  const b = blocks.find((x) => x.date === mt.date);
+  if (!b) throw new Error(`この試合（${dl(mt.date)}）と同じ試合日の欄が見つかりませんでした。Excelにある試合日：${blocks.map((x) => x.date ? dl(x.date) : '（未記入）').join('、')}`);
   const d = {}, set = (k, v) => { if (v) setPath(d, k, v); };
   set('s.主審.self.past', b.past); set('s.主審.self.challenge', b.challenge);
   // 振り返り：ひな形の文字（見出しや〖５・４・３・２・１〗）以外に何か書いてあれば取り込む
@@ -943,7 +1011,7 @@ function rpTab(k) {
   rpAutosave.flush();
 }
 function rpNext() { const i = RP.secs.findIndex((s) => s[0] === RP.sec); if (i < RP.secs.length - 1) rpTab(RP.secs[i + 1][0]); }
-function rpDirty() { if (!RP || !RP.editable) return; RP.dirty = true; $('#rp-state').textContent = '未保存の変更があります'; rpAutosave(); }
+function rpDirty() { if (SE) return seDirty(); if (!RP || !RP.editable) return; RP.dirty = true; $('#rp-state').textContent = '未保存の変更があります'; rpAutosave(); }
 const rpAutosave = debounce(() => { if (RP && RP.dirty && RP.editable) rpSave(false, true); }, 4000);
 
 /* 画面側でも提出前のチェックをする（サーバーでも同じ確認をする） */
@@ -993,6 +1061,7 @@ function rpCheck() {
 }
 
 ROUTES.report = async (matchId) => {
+  SE = null;
   const back = B.ctx.asr && !B.ctx.com ? ['assess'] : null;
   head('アセスメントレポート', back || ['c_reports']);
   RP = await call('api_reportGet', matchId);
@@ -1021,7 +1090,7 @@ ROUTES.report = async (matchId) => {
   const nextBtn = (k) => `<div class="row" style="margin-top:8px"><span class="spacer"></span><button class="btn primary nextto" data-from="${k}" onclick="rpNext()">次へ：${nextOf(k)} ›</button></div>`;
   const hasOthers = evalRoles.some((r) => r !== '主審');
   $('#tools').innerHTML = statusPill(RP.status);
-  setMain(`<div class="row" style="margin-bottom:8px">${dateBox(RP.match.date)}<div style="flex:1;min-width:0"><div class="b">${card(RP.match)}</div><div class="small muted">${h(RP.match.comp)} ${h(RP.match.name)}／${h(RP.match.venue)}</div></div><button class="btn sm" onclick="rxOpen()">Excelから取り込み</button></div>
+  setMain(`<div class="row" style="margin-bottom:8px;flex-wrap:wrap">${dateBox(RP.match.date)}<div style="flex:1;min-width:220px"><div class="b">${card(RP.match)}</div><div class="small muted">${h(RP.match.comp)} ${h(RP.match.name)}／${h(RP.match.venue)}</div></div><button class="btn sm" style="margin-left:auto" onclick="rxOpen()">Excelから取り込み</button></div>
     <div class="secnav" id="rp-nav">${RP.secs.map(([k, l], i) => `<button data-t="${k}" class="${i ? '' : 'on'}" onclick="rpTab('${k}')">${l}</button>`).join('')}</div>
     <div id="rp-form" style="margin-top:12px">
       <div class="pane" data-pane="info">
@@ -1050,7 +1119,13 @@ ROUTES.report = async (matchId) => {
   if (!getPath(RP.form, 'info.date')) setPath(RP.form, 'info.date', B.today);
   { const it = getPath(RP.form, 's.主審.items') || {};
     Object.keys(it).forEach((k) => { const x = it[k] || {}; if ((x.good || x.bad) && !x.advice) { x.advice = [x.good && '良かった点：' + x.good, x.bad && '課題点：' + x.bad].filter(Boolean).join('\n'); delete x.good; delete x.bad; } }); }
+  if (RP.self && crew['主審'] && crew['主審'].evaluated) setPath(RP.form, 's.主審.self', RP.self.data);
   fillReport(RP.form);
+  if (RP.self) {   // 審判員が送った自己評価：アセッサーは変えられない（提出のときもこの内容が入る）
+    $$('#rp-form [data-k^="s.主審.self."]').forEach((el) => { el.disabled = true; });
+    $$('#rp-form [data-seg^="s.主審.self."] button').forEach((b) => { b.disabled = true; });
+    const top = $('#rp-form details[data-self="top"] summary .small'); if (top) top.textContent = `　審判員から届きました（${RP.self.sentAt}）`;
+  }
   rpOthers(!!RP.form.others, true);   // 副審・第4の審判員のタブは「も評価する」のときだけ
   RP.dirty = false;
   LEAVE = () => { if (RP && RP.dirty && RP.editable) rpSave(false, true); };
