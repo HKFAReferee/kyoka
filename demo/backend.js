@@ -1,7 +1,7 @@
 // 自動生成：非公開リポジトリ kyoka-system の tools/build-demo.js で作る。直接編集しない
 
 // ブラウザの中で Apps Script を動かすための最小の模擬（スプレッドシートはメモリ上、この端末の localStorage に保存）
-var STORE_KEY = 'kyoka-demo-v1';
+var STORE_KEY = 'kyoka-demo-v2';   // デモの中身を変えたら数字を上げる（前のデータを使わず作り直す）
 // デモの「今日」は毎月5日に固定（来月の稼働調査が締切15日の前で、委員会のホームの「来月」に出るように）。時刻は今の時刻
 var RealDate_ = Date;
 var DEMO_SHIFT_ = (function () { var t = new RealDate_(RealDate_.now() + 9 * 3600 * 1000); return (t.getUTCDate() - 5) * 86400000; })();
@@ -1566,7 +1566,7 @@ function setupDemo() {
   const addMatch = function (id, date, name, a, b, ko) {
     append_('試合', { '試合ID': id, '対象月': ym_(date), '大会名': 'デモリーグ', '試合名': name, '試合日': date, 'キックオフ': ko, '会場': venue, 'チームA': a, 'チームB': b });
   };
-  // 終わった試合（割当公開済み）：1つは提出済みのレポート、1つはアセッサーがこれから書く
+  // 終わった試合（割当公開済み）：1つは提出済みのレポート、1つはアセッサーがこれから書く（審判Aが主審なので、自己評価を書いて送る流れも試せる）
   addMatch('DEMO-P1', day(-13), '第1節', 'デモFC', 'サンプルSC', '13:00');
   addMatch('DEMO-P2', day(-6), '第2節', 'テスト大学', '見本ユナイテッド', '11:00');
   // 稼働調査の月：締切（前月15日）まで5日以上ある月
@@ -1586,7 +1586,7 @@ function setupDemo() {
   const com = tok.DEMO01, asr = tok.DEMO03;
   const k = function (id) { return { kind: '強化', memberId: id }; };
   api_saveAssign(com, 'DEMO-P1', { '主審': k('DEMO02'), '副審1': k('DEMO04'), '副審2': k('DEMO05'), '第4審': k('DEMO06'), 'アセッサー': k('DEMO03') });
-  api_saveAssign(com, 'DEMO-P2', { '主審': k('DEMO04'), '副審1': k('DEMO02'), '副審2': k('DEMO07'), '第4審': { kind: '' }, 'アセッサー': k('DEMO03') });
+  api_saveAssign(com, 'DEMO-P2', { '主審': k('DEMO02'), '副審1': k('DEMO04'), '副審2': k('DEMO07'), '第4審': { kind: '' }, 'アセッサー': k('DEMO03') });
   [ym_(day(-13)), ym_(day(-6))].filter(function (v, i, a) { return a.indexOf(v) === i; }).forEach(function (ym) { setMonth_(ym, '一覧公開日時', now_()); api_publishAssign(com, ym); });
   const r = api_reportSave(asr, 'DEMO-P1', {
     info: { date: day(-12), time: '90', sc: { a1: '1', b1: '0', a2: '1', b2: '1' }, ops: '特になし' },
