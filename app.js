@@ -192,7 +192,7 @@ const PAGES = {
 function navGroups() {
   const c = B.ctx, g = [];
   if (c.kind === 'team') return [['チーム', ['team']]];
-  g.push(['自分', ['home', ...(c.ref ? ['survey', 'myreports', 'fitness'] : [])]]);
+  g.push(['自分', ['home', ...(c.ref ? ['survey', 'myreports', 'fitness'] : c.asr ? ['survey'] : [])]]);
   if (c.asr) g.push(['アセッサー', ['assess']]);
   g.push(['みんな', ['table', 'videos', 'cases']]);
   if (c.com) g.push(['委員会', ['c_matches', 'c_survey', 'c_assign', 'c_dispatch', 'c_reports', 'c_fitness', 'c_karte', 'c_master']]);
@@ -203,7 +203,7 @@ function tabItems() {
   if (c.com) return ['home', 'c_assign', 'c_survey', 'c_reports'];
   if (c.ref && c.asr) return ['home', 'survey', 'assess', 'table'];
   if (c.ref) return ['home', 'survey', 'table', 'myreports'];
-  if (c.asr) return ['home', 'assess', 'videos', 'cases'];
+  if (c.asr) return ['home', 'survey', 'assess', 'videos'];
   return ['home', 'table', 'videos', 'cases'];
 }
 const PARENT = { myreport: 'myreports', video: 'videos', c_report: 'c_reports' };
@@ -426,6 +426,7 @@ function prefetchTabs() {
   const c = B.ctx, nm = addMonth(B.today.slice(0, 7), 1), list = [];
   if (c.com) list.push(['api_months'], ['api_assignBoard', nm], ['api_surveyStatus', nm], ['api_reports', B.today.slice(0, 7)], ['api_matches', nm]);
   if (c.ref) list.push(['api_survey', ''], ['api_assignTable', ''], ['api_myReports']);
+  else if (c.asr) list.push(['api_survey', '']);
   if (c.asr) list.push(['api_myAssessments']);
   if (!c.com && !c.ref) list.push(['api_assignTable', '']);
   list.push(['api_videos']);
@@ -1681,7 +1682,7 @@ ROUTES.c_matches = async (ym) => {
   setMain(`${flowSteps(ym, 'c_matches')}
     <div class="card ${CM.listPublished ? 'pale' : (CM.matches.length ? 'warn' : '')}"><div class="row">
       <div style="flex:1;min-width:200px">${CM.listPublished ? `<div class="b blue">一覧を公開済み・稼働調査の受付中</div><div class="small muted">締切 ${dl(CM.deadline)}。試合を追加・変更したときは、必要なら回答依頼を再送してください。</div>`
-        : `<div class="b">${CM.matches.length ? 'まだ公開していません' : '試合を登録してください'}</div><div class="small muted">公開すると全強化審判員に稼働調査の回答依頼メールが届きます。毎月10日の朝、翌月の一覧が未公開なら自動で公開されます。</div>`}</div>
+        : `<div class="b">${CM.matches.length ? 'まだ公開していません' : '試合を登録してください'}</div><div class="small muted">公開すると強化審判員とアセッサー全員に稼働調査の回答依頼メールが届きます。毎月10日の朝、翌月の一覧が未公開なら自動で公開されます。</div>`}</div>
       <button class="btn sm ghost" onclick="cmDeadline()">締切を変更</button><button class="btn ${CM.listPublished ? '' : 'primary'}" onclick="cmPublish()" ${CM.matches.length ? '' : 'disabled'}>${CM.listPublished ? '回答依頼を再送' : '公開して回答依頼'}</button></div></div>
     ${noVenue ? `<div class="card warn small"><span class="red b">会場マスタにない会場が ${noVenue}件 あります。</span>派遣依頼の宛先が決まらないため、マスタの「会場」に登録してください。</div>` : ''}
     <div class="row" style="margin:20px 0 10px"><h2 style="margin:0">${CM.matches.length}試合</h2><span class="spacer"></span><button class="btn" onclick="cmPaste()">CSV・Excelから取り込み</button><button class="btn primary" onclick="cmEdit(-1)">＋ 試合を追加</button></div>
@@ -1857,7 +1858,7 @@ async function cmDeadlineSave(d) {
   try { const r = await call('api_setDeadline', CM.month, d); toast('締切を ' + dl(r.deadline) + ' にしました'); closeModal(); go('c_matches', CM.month); } catch (e) { fail(e); }
 }
 async function cmPublish() {
-  if (!confirm(`${ymLabel(CM.month)}の試合一覧を公開し、全強化審判員に稼働調査の回答依頼メールを送ります。よろしいですか？`)) return;
+  if (!confirm(`${ymLabel(CM.month)}の試合一覧を公開し、強化審判員とアセッサー全員に稼働調査の回答依頼メールを送ります。よろしいですか？`)) return;
   try { await call('api_publishList', CM.month); toast('公開してメールを送りました'); go('c_matches', CM.month); } catch (e) { fail(e); }
 }
 
@@ -1872,7 +1873,7 @@ ROUTES.c_survey = async (ym) => {
   const done = r.refs.filter((x) => x.answered >= r.matches.length).length;
   const notes = [];
   const head2 = r.matches.map((m) => `<th title="${h(m.comp + ' ' + m.name)}"><div>${dl(m.date)}</div><div style="font-weight:400">${h(m.a).slice(0, 5)}<br>${h(m.b).slice(0, 5)}</div></th>`).join('');
-  const body = r.refs.map((x) => `<tr><td>${h(x.name)} <span class="small ${x.answered < r.matches.length ? 'red' : 'muted'}">${x.answered}/${r.matches.length}</span></td>${r.matches.map((m) => {
+  const body = r.refs.map((x) => `<tr><td>${h(x.name)}${x.asrOnly ? ' <span class="pill">アセッサー</span>' : ''} <span class="small ${x.answered < r.matches.length ? 'red' : 'muted'}">${x.answered}/${r.matches.length}</span></td>${r.matches.map((m) => {
     const a = x.answers[m.id] || {};
     if (a.note) notes.push({ who: x.name, m, a });
     return `<td class="${cls(a.ans)} ${a.note ? 'note' : ''}" ${a.note ? `onclick="toast('${h(x.name)}：${h(a.note).replace(/'/g, '')}')" title="${h(a.note)}"` : ''}>${h(a.ans || '・')}</td>`;

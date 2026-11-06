@@ -1,7 +1,7 @@
 // 自動生成：非公開リポジトリ kyoka-system の tools/build-demo.js で作る。直接編集しない
 
 // ブラウザの中で Apps Script を動かすための最小の模擬（スプレッドシートはメモリ上、この端末の localStorage に保存）
-var STORE_KEY = 'kyoka-demo-v2';   // デモの中身を変えたら数字を上げる（前のデータを使わず作り直す）
+var STORE_KEY = 'kyoka-demo-v3';   // デモの中身を変えたら数字を上げる（前のデータを使わず作り直す）
 // デモの「今日」は毎月5日に固定（来月の稼働調査が締切15日の前で、委員会のホームの「来月」に出るように）。時刻は今の時刻
 var RealDate_ = Date;
 var DEMO_SHIFT_ = (function () { var t = new RealDate_(RealDate_.now() + 9 * 3600 * 1000); return (t.getUTCDate() - 5) * 86400000; })();
@@ -320,6 +320,8 @@ function members_() { return rows_('メンバー'); }
 function member_(id) { return members_().find(function (m) { return m.ID === id; }); }
 function memberName_(id) { const m = member_(id); return m ? m['氏名'] : (id ? '（削除済）' : ''); }
 function activeRefs_() { return members_().filter(function (m) { return truthy_(m['在籍']) && truthy_(m['審判員']); }); }
+// 稼働調査に答える人：審判員とアセッサー
+function surveyMembers_() { return members_().filter(function (m) { return truthy_(m['在籍']) && (truthy_(m['審判員']) || truthy_(m['アセッサー'])); }); }
 function committee_() { return members_().filter(function (m) { return truthy_(m['在籍']) && truthy_(m['委員会']); }); }
 function match_(id) { return rows_('試合').find(function (m) { return m['試合ID'] === id; }); }
 function monthRow_(ym) { return rows_('月管理').find(function (r) { return r['対象月'] === ym; }); }
@@ -377,7 +379,7 @@ function mailMember_(m, subject, lines, page, arg) {
 function publishList_(ym) {
   setMonth_(ym, '一覧公開日時', now_());
   const dl = surveyDeadline_(ym);
-  activeRefs_().forEach(function (m) {
+  surveyMembers_().forEach(function (m) {
     mailMember_(m, ym.replace('-', '年') + '月の稼働調査のお願い',
       [ym.replace('-', '年') + '月の試合一覧を公開しました。', '試合ごとに○△×を回答してください。', '締切：' + dl.replace(/-/g, '/')], 'survey');
   });
@@ -388,7 +390,7 @@ function remindSurvey_(ym) {
   const ids = rows_('試合').filter(function (r) { return r['対象月'] === ym; }).map(function (r) { return r['試合ID']; });
   if (!ids.length) return;
   const ans = rows_('稼働調査');
-  activeRefs_().forEach(function (m) {
+  surveyMembers_().forEach(function (m) {
     const n = ans.filter(function (a) { return a['メンバーID'] === m.ID && ids.indexOf(a['試合ID']) >= 0 && a['回答']; }).length;
     if (n < ids.length) mailMember_(m, '稼働調査の締切は明日です',
       [ym.replace('-', '年') + '月の稼働調査に、まだ回答していない試合があります（' + n + '／' + ids.length + '試合回答済み）。', '締切：' + surveyDeadline_(ym).replace(/-/g, '/')], 'survey');
@@ -571,12 +573,14 @@ function api_home(t) {
   });
   upcoming.sort(sortByDate_);
   const res = { upcoming: upcoming, notices: [] };
-  if (c.ref) {
+  if (c.ref || c.asr) {
     const s = api_survey(t);
     if (s.open) {
       const answered = s.matches.filter(function (m) { return m.ans; }).length;
       if (answered < s.matches.length) res.notices.push({ page: 'survey', text: s.month.replace('-', '年') + '月の稼働調査：' + answered + '／' + s.matches.length + '試合回答済み（締切 ' + s.deadline.slice(5).replace('-', '/') + '）' });
     }
+  }
+  if (c.ref) {
     const cur = ym_(today);
     if (!rows_('体力テスト').some(function (r) { return r['メンバーID'] === c.id && r['測定月'] === cur; }))
       res.notices.push({ page: 'fitness', text: cur.replace('-', '年') + '月の体力テストが未入力です（締切 ' + cur.slice(5) + '/' + lastDay_(cur) + '）' });
@@ -599,7 +603,7 @@ function api_home(t) {
 function comSummary_(today) {
   const cur = ym_(today);
   const allM = rows_('試合'), asg = rows_('割当'), ans = rows_('稼働調査'), reps = rows_('レポート');
-  const refs = activeRefs_();
+  const refs = surveyMembers_();
   const months = [cur, addMonth_(cur, 1)].map(function (ym) {
     const ms = allM.filter(function (m) { return m['対象月'] === ym; });
     const ids = ms.map(function (m) { return m['試合ID']; });
@@ -632,6 +636,7 @@ function comSummary_(today) {
 
 /* ───────── 審判員：稼働調査 ───────── */
 
+function needSurvey_(c) { if (c.kind !== 'member' || !(c.ref || c.asr)) throw new Error('この操作の権限がありません。'); }
 function openSurveyMonth_() {
   const today = today_();
   const months = rows_('月管理').filter(function (r) { return r['一覧公開日時']; }).map(function (r) { return r['対象月']; }).sort();
@@ -641,7 +646,7 @@ function openSurveyMonth_() {
 }
 
 function api_survey(t, ym) {
-  const c = ctx_(t); need_(c, 'ref');
+  const c = ctx_(t); needSurvey_(c);
   const o = openSurveyMonth_();
   const month = ym || o.open || o.latest;
   if (!month || !listPublished_(month)) return { month: month || '', open: false, matches: [], deadline: '' };
@@ -656,7 +661,7 @@ function api_survey(t, ym) {
 }
 
 function api_saveSurvey(t, ym, answers) {
-  const c = ctx_(t); need_(c, 'ref');
+  const c = ctx_(t); needSurvey_(c);
   if (today_() > surveyDeadline_(ym)) throw new Error('稼働調査の締切を過ぎています。変更は委員会に連絡してください。');
   return withLock_(function () {
     const all = rows_('稼働調査');
@@ -1073,10 +1078,10 @@ function api_surveyStatus(t, ym) {
   const matches = rows_('試合').filter(function (m) { return m['対象月'] === ym; }).map(matchView_).sort(sortByDate_);
   const ids = matches.map(function (m) { return m.id; });
   const ans = rows_('稼働調査').filter(function (a) { return ids.indexOf(a['試合ID']) >= 0; });
-  const refs = activeRefs_().map(function (m) {
+  const refs = surveyMembers_().map(function (m) {
     const a = {};
     ans.filter(function (x) { return x['メンバーID'] === m.ID; }).forEach(function (x) { a[x['試合ID']] = { ans: x['回答'], note: x['備考'] }; });
-    return { id: m.ID, name: m['氏名'], answers: a, answered: Object.keys(a).filter(function (k) { return a[k].ans; }).length };
+    return { id: m.ID, name: m['氏名'], asrOnly: !truthy_(m['審判員']), answers: a, answered: Object.keys(a).filter(function (k) { return a[k].ans; }).length };
   });
   return { month: ym, matches: matches, refs: refs, deadline: surveyDeadline_(ym), published: listPublished_(ym) };
 }
@@ -1125,7 +1130,10 @@ function api_assignBoard(t, ym) {
         return { id: rf.ID, name: rf['氏名'], grade: rf['級'], ans: a ? a['回答'] : '', note: a ? a['備考'] : '', alerts: alertsFor_(rf.ID, m, role, allAsg) };
       }).filter(function (x) { return x.ans === '○' || x.ans === '△' || (v.slots[role] && v.slots[role].memberId === x.id); });
     });
-    v.cands['アセッサー'] = asrs.map(function (a) { return { id: a.ID, name: a['氏名'], ans: '', alerts: alertsFor_(a.ID, m, 'アセッサー', allAsg) }; });
+    v.cands['アセッサー'] = asrs.map(function (a) {
+      const x = ans.find(function (y) { return y['試合ID'] === v.id && y['メンバーID'] === a.ID; });
+      return { id: a.ID, name: a['氏名'], ans: x ? x['回答'] : '', note: x ? x['備考'] : '', alerts: alertsFor_(a.ID, m, 'アセッサー', allAsg) };
+    }).filter(function (x) { return x.ans === '○' || x.ans === '△' || (v.slots['アセッサー'] && v.slots['アセッサー'].memberId === x.id); });
     return v;
   }).sort(sortByDate_);
   const assocs = rows_('地区協会').map(function (r) { return r['協会名']; });
@@ -1620,9 +1628,9 @@ function setupDemo() {
     p3: '（委員会への報告：審判員には見えません）',
   }, true);
   if (!r.ok) throw new Error('デモのレポートを作れませんでした：' + (r.errors || []).join(' / '));
-  // 稼働調査：審判B〜Eは回答済み、審判Aは未回答（自分で試す）
+  // 稼働調査：審判B〜Eとアセッサーは回答済み、審判Aは未回答（自分で試す）
   const sv = api_survey(tok.DEMO04, sym);
-  ['DEMO04', 'DEMO05', 'DEMO06', 'DEMO07'].forEach(function (id, j) {
+  ['DEMO04', 'DEMO05', 'DEMO06', 'DEMO07', 'DEMO03'].forEach(function (id, j) {   // アセッサー（DEMO03）も答える
     api_saveSurvey(tok[id], sym, sv.matches.map(function (m, i) { return { id: m.id, ans: (i + j) % 4 === 3 ? '×' : ((i + j) % 4 === 2 ? '△' : '○'), note: (i + j) % 4 === 2 ? '午後からなら可' : '' }; }));
   });
   DEMO_ = false; CACHE_ = {};
